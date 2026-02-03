@@ -151,8 +151,8 @@ function update!(world)
     return
 end
 
-function spawn_entities!(world, grid)
-    for _ in 1:10000
+function spawn_entities!(world, grid, init_entities)
+    for _ in 1:init_entities
         x = rand(1:grid.width)
         y = rand(1:grid.height)
 
@@ -192,7 +192,7 @@ function step!(world, grid, migration_rates, tr)
     return
 end
 
-function iterate!(world, grid, migration_rates, tr)
+function iterate!(world, grid, migration_rates, tr, init_entities)
     for _ in 1:100
         step!(world, grid, migration_rates, tr)
         logger = Ark.get_resource(world, Logger)
@@ -214,7 +214,7 @@ function iterate!(world, grid, migration_rates, tr)
         q = Ark.Query(world, ())
 
         push!(
-            logger.dead, 10000 - Ark.count_entities(q)
+            logger.dead, init_entities - Ark.count_entities(q)
         )
 
         Ark.close!(q)
@@ -227,16 +227,17 @@ function @main(rgs)
     tr1 = 0.9
     tr = TransmitionRates(tr1, tr1 / 9.3, 10, 0.05)
 
+    init_entities = 100_000
 
-    grid = Grid(24, 24)
+    grid = Grid(240, 240)
     migration_rates = generate_migration_rates(grid)
 
     world = Ark.World(Position, Infected, Cured)
     Ark.add_resource!(world, Logger())
 
-    spawn_entities!(world, grid)
+    spawn_entities!(world, grid, init_entities)
 
-    iterate!(world, grid, migration_rates, tr)
+    @time iterate!(world, grid, migration_rates, tr, init_entities)
 
     logger = Ark.get_resource(world, Logger)
 
@@ -246,4 +247,3 @@ function @main(rgs)
 end
 
 @main(1)
-
