@@ -152,7 +152,7 @@ function update!(world)
 end
 
 function spawn_entities!(world, grid)
-    for _ in 1:1000
+    for _ in 1:10000
         x = rand(1:grid.width)
         y = rand(1:grid.height)
 
@@ -214,7 +214,7 @@ function iterate!(world, grid, migration_rates, tr)
         q = Ark.Query(world, ())
 
         push!(
-            logger.dead, 1000 - Ark.count_entities(q)
+            logger.dead, 10000 - Ark.count_entities(q)
         )
 
         Ark.close!(q)
@@ -225,10 +225,10 @@ end
 
 function @main(rgs)
     tr1 = 0.9
-    tr = TransmitionRates(tr1, tr1 / 10, 10, 0.05)
+    tr = TransmitionRates(tr1, tr1 / 9.3, 10, 0.05)
 
 
-    grid = Grid(64, 64)
+    grid = Grid(24, 24)
     migration_rates = generate_migration_rates(grid)
 
     world = Ark.World(Position, Infected, Cured)
