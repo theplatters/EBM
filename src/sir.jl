@@ -1,6 +1,6 @@
 import Ark
 using Plots
-using Ark: Query, Entity
+using Ark: Entity, Query
 using LinearAlgebra: diagind
 using StatsBase
 
@@ -16,11 +16,29 @@ end
 
 struct Cured end
 
-
 struct Grid
     width::UInt64
     height::UInt64
 end
+
+struct WeightCache
+    rows::Vector{Weights}
+    cols::Vector{Weights}
+end
+
+function WeightCache(m::Matrix{Float64})
+    rows = Weights[]
+    cols = Weights[]
+    for row in eachrow(m)
+        push!(rows,Weights(row))
+    end
+
+    for col in eachcol(m)
+        push!(cols,Weights(col))
+    end
+    WeightCache(rows,cols)
+end
+
 
 struct TransmitionRates
     undetected::Float64
@@ -54,18 +72,61 @@ function generate_migration_rates(grid)
     return migration_rates
 end
 
+struct WeightCacheCDF
+    cdf_rows::Vector{Vector{Float64}}  # each is length W, last element == 1 (or == total)
+    cdf_cols::Vector{Vector{Float64}}  # each is length H
+end
 
-function migrate!(world, grid, migration_rates)
+# Build once (when migration_rates changes)
+function WeightCacheCDF(migration_rates::AbstractMatrix{<:Real})
     H, W = size(migration_rates)
+
+    # Example assumes:
+    # - "row conditional" for x given y0: weights = migration_rates[y0, :]
+    # - "col conditional" for y given x0: weights = migration_rates[:, x0]
+    # Adjust if your meaning differs.
+    cdf_rows = Vector{Vector{Float64}}(undef, H)
+    for y in 1:H
+        w = Float64.(view(migration_rates, y, :))
+        s = sum(w)
+        s == 0 && (w .= 1)  # fallback to uniform if degenerate; choose your policy
+        c = cumsum(w)
+        c ./= c[end]
+        cdf_rows[y] = c
+    end
+
+    cdf_cols = Vector{Vector{Float64}}(undef, W)
+    for x in 1:W
+        w = Float64.(view(migration_rates, :, x))
+        s = sum(w)
+        s == 0 && (w .= 1)
+        c = cumsum(w)
+        c ./= c[end]
+        cdf_cols[x] = c
+    end
+
+    return WeightCacheCDF(cdf_rows, cdf_cols)
+end
+
+@inline function draw_cdf(cdf::AbstractVector{<:Real})
+    u = rand()
+    return searchsortedfirst(cdf, u)
+end
+
+function migrate!(world, grid)
+
+    cache = Ark.get_resource(world, WeightCacheCDF)
+    H = length(cache.cdf_rows)
+    W = length(cache.cdf_cols)
 
     for (entities, positions) in Query(world, (Position,))
         @inbounds for i in eachindex(entities)
-            # ensure current position is valid for 1-based arrays
             x0 = clamp(positions[i].x, 1, W)
             y0 = clamp(positions[i].y, 1, H)
 
-            x = sample(1:W, Weights(@view migration_rates[y0, :]))   # row: fixed y
-            y = sample(1:H, Weights(@view migration_rates[:, x0]))   # col: fixed x
+            # x conditional on y0, y conditional on x0 (consistent naming)
+            x = draw_cdf(cache.cdf_rows[y0])
+            y = draw_cdf(cache.cdf_cols[x0])
 
             positions[i] = Position(x, y)
         end
@@ -144,7 +205,7 @@ end
 
 function update!(world)
     for (entity, infected) in Query(world, (Infected,))
-        @inbounds for i in eachindex(entity)
+        Threads.@threads for i in eachindex(entity)
             infected[i] = Infected(infected[i].since + 1)
         end
     end
@@ -168,10 +229,19 @@ function spawn_entities!(world, grid, init_entities)
 end
 
 
-function step!(world, grid, migration_rates, tr)
-    migrate!(world, grid, migration_rates)
-    (to_add, to_remove) = transmit!(world, tr)
+function step!(world, grid, tr)
+    # These two operate on different components - can run in parallel
+    migrate!(world, grid)
+    update!(world)
+    
 
+    
+    # Both are read-only queries - can run in parallel
+    (to_add, to_remove) = transmit!(world, tr)
+    (entities_to_remove, entities_to_change) = recover_or_die!(world, 10, 0.2)
+    
+
+    # World mutations must be serial
     for t in to_add
         Ark.add_components!(world, first(t), last(t))
     end
@@ -179,22 +249,21 @@ function step!(world, grid, migration_rates, tr)
     for t in to_remove
         Ark.remove_components!(world, first(t), last(t))
     end
-    update!(world)
 
-    to_remove, to_change = recover_or_die!(world, 10, 0.2)
-
-    for r in to_remove
+    for r in entities_to_remove
         Ark.remove_entity!(world, r)
     end
-    for r in to_change
+    
+    for r in entities_to_change
         Ark.exchange_components!(world, r, remove = (Infected,), add = (Cured(),))
     end
+    
     return
 end
 
-function iterate!(world, grid, migration_rates, tr, init_entities)
+function iterate!(world, grid, tr, init_entities)
     for _ in 1:100
-        step!(world, grid, migration_rates, tr)
+        step!(world, grid, tr)
         logger = Ark.get_resource(world, Logger)
 
         q = Ark.Query(world, (Infected,))
@@ -227,17 +296,17 @@ function @main(rgs)
     tr1 = 0.9
     tr = TransmitionRates(tr1, tr1 / 9.3, 10, 0.05)
 
-    init_entities = 100_000
+    init_entities = 1_000_000
 
     grid = Grid(240, 240)
     migration_rates = generate_migration_rates(grid)
 
     world = Ark.World(Position, Infected, Cured)
     Ark.add_resource!(world, Logger())
+    Ark.add_resource!(world, WeightCacheCDF(migration_rates))
+    @time spawn_entities!(world, grid, init_entities)
 
-    spawn_entities!(world, grid, init_entities)
-
-    @time iterate!(world, grid, migration_rates, tr, init_entities)
+    @time iterate!(world, grid, tr, init_entities)
 
     logger = Ark.get_resource(world, Logger)
 
@@ -247,3 +316,4 @@ function @main(rgs)
 end
 
 @main(1)
+
