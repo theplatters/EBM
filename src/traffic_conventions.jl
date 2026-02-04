@@ -54,7 +54,7 @@ struct LR
     val::Float64
 end
 
-mutable struct Step
+struct Step
     val::Int64
 end
 
@@ -74,7 +74,7 @@ Base.@kwdef struct ModelParams
 end
 
 
-function step(pos::Position, ring::Ring, direction::Direction)
+function step_y(pos::Position, ring::Ring, direction::Direction)
     h = Int(ring.height)
     return mod1(Int(pos.y) + Int(direction), h)
 end
@@ -103,6 +103,7 @@ end
             habitgene,
             habitus,
             LR(0.0),
+            Step(1),
         )
     )
 end
@@ -141,9 +142,10 @@ function move!(world)
             pos[i] = Position(lr[i].val ≥ 0.0 ? 1 : 2, pos[i].y)
         end
     end
-    for (e, pos, dir) in Query(world, (Position, Direction))
+    for (e, pos, dir, step) in Query(world, (Position, Direction, Step))
         @inbounds for i in eachindex(e)
-            pos[i] = Position(pos[i].x, step(pos[i], ring, dir[i]))
+            pos[i] = Position(pos[i].x, step_y(pos[i], ring, dir[i]))
+            step[i] = Step(step[i].val + 1)
         end
     end
     return
@@ -242,12 +244,11 @@ end
 lane_to_LR(laneIndex::Int) = laneIndex == 1 ? 1.0 : -1.0
 
 function update_habitus!(world)
-    step = Ark.get_resource(world, Step)
     params = Ark.get_resource(world, ModelParams)
 
-    for (e, pos, hab) in Query(world, (Position, Habitus))
+    for (e, pos, hab, step) in Query(world, (Position, Habitus, Step))
         @inbounds for i in eachindex(e)
-            hab[i] = Habitus(clamp(hab[i].val + lane_to_LR(pos[i].x) / (params.K + step.val), -1.0, 1.0))
+            hab[i] = Habitus(clamp(hab[i].val + lane_to_LR(pos[i].x) / (params.K + step[i].val), -1.0, 1.0))
         end
     end
     return
@@ -293,7 +294,7 @@ function compute_observations_for!(world, occ, pos_n::Position, dir_n::Direction
             end
 
             # “very close” = exactly one zone ahead
-            if d == 1 
+            if d == 1
                 if left_rel
                     CL = 1
                 else
@@ -361,21 +362,14 @@ function calculate_lr!(world)
     return
 end
 
-function update!(world)
-    step = Ark.get_resource(world, Step)
-    step.val += 1
-    return
-end
-
 
 function main(args)
-    world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR)
+    world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR, Step)
 
     Ark.add_resource!(world, Ring(2, 200))
     Ark.add_resource!(world, Random.default_rng())
     Ark.add_resource!(world, ModelParams())
     Ark.add_resource!(world, Weights())
-    Ark.add_resource!(world, Step(1))
 
     spawn_init_entities!(world)
     for _ in 1:args
@@ -384,7 +378,6 @@ function main(args)
         store_prev_positions!(world)
         move!(world)
         update_habitus!(world)
-        update!(world)
 
         new_entities = delete_on_collision!(world)
         spawn_new_entities!(world, new_entities)
@@ -515,13 +508,12 @@ Run the simulation, log agreement each step, and plot it at the end.
 Returns: world, agreement_series
 """
 function run_log_agreement(steps::Int)
-    world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR)
+    world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR, Step)
 
     Ark.add_resource!(world, Ring(2, 400))
     Ark.add_resource!(world, Random.default_rng())
     Ark.add_resource!(world, ModelParams())
     Ark.add_resource!(world, Weights())
-    Ark.add_resource!(world, Step(1))
 
     spawn_init_entities!(world)
 
@@ -531,7 +523,6 @@ function run_log_agreement(steps::Int)
         update_habitus!(world)
         store_prev_positions!(world)
         move!(world)
-        update!(world)
         calculate_lr!(world)
 
         new_entities = delete_on_collision!(world)
@@ -556,6 +547,7 @@ end
 
 # Example run:
 world, A, p = run_log_agreement(550)
-
+unicodeplots()
 p
+
 run_with_stats(1000)

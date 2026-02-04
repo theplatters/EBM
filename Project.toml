@@ -9,6 +9,7 @@ Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
 Ark = "0.3.2"
@@ -16,3 +17,4 @@ Distributions = "0.25.123"
 LinearAlgebra = "1.12.0"
 Plots = "1.41.4"
 StatsBase = "0.34.10"
+UnicodePlots = "3.8.1"
