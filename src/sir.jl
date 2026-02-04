@@ -51,10 +51,11 @@ struct Logger
     infected::Vector{Int64}
     cured::Vector{Int64}
     dead::Vector{Int64}
+    city_matrix::Vector{Matrix{Float64}}
 end
 
 function Logger()
-    return Logger(Vector{Int64}(), Vector{Int64}(), Vector{Int64}())
+    return Logger(Vector{Int64}(), Vector{Int64}(), Vector{Int64}(), Vector{Matrix{Float64}}())
 end
 
 function generate_migration_rates(grid)
@@ -150,7 +151,6 @@ function transmit!(world, tr::TransmitionRates)
         @inbounds for i in eachindex(inf_entities)
             rate = cellrate(inf_inf[i].since, tr)
 
-            # stochastic "budget" of infections (same structure as your ABM version)
             n = rate * abs(randn())
             n <= 0 && continue
 
@@ -238,7 +238,7 @@ function step!(world, grid, tr)
     
     # Both are read-only queries - can run in parallel
     (to_add, to_remove) = transmit!(world, tr)
-    (entities_to_remove, entities_to_change) = recover_or_die!(world, 10, 0.2)
+    (entities_to_remove, entities_to_change) = recover_or_die!(world, 50, 0.1)
     
 
     # World mutations must be serial
@@ -262,7 +262,7 @@ function step!(world, grid, tr)
 end
 
 function iterate!(world, grid, tr, init_entities)
-    for _ in 1:100
+    for _ in 1:steps
         step!(world, grid, tr)
         logger = Ark.get_resource(world, Logger)
 
@@ -286,19 +286,19 @@ function iterate!(world, grid, tr, init_entities)
             logger.dead, init_entities - Ark.count_entities(q)
         )
 
+
         Ark.close!(q)
     end
     return
 end
 
 
-function @main(rgs)
-    tr1 = 0.9
-    tr = TransmitionRates(tr1, tr1 / 9.3, 10, 0.05)
+function @main(args)
+    tr = TransmitionRates(args[1], args[2], args[3], args[4])
 
-    init_entities = 1_000_000
+    init_entities = 10_000
 
-    grid = Grid(240, 240)
+    grid = Grid(24, 24)
     migration_rates = generate_migration_rates(grid)
 
     world = Ark.World(Position, Infected, Cured)
@@ -315,5 +315,5 @@ function @main(rgs)
     plot!(logger.cured, label ="cured")
 end
 
-@main(1)
+@main([0.01, 0.001, 10, 0.1])
 

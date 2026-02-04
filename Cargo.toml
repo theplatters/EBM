@@ -1,0 +1,10 @@
+[package]
+name = "EBM"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy_ecs = "0.18.0"
+bevy_math = "0.18.0"
+polars = "0.52.0"
+rand = "0.9.2"
