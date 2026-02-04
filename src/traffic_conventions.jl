@@ -55,21 +55,22 @@ struct LR
 end
 
 mutable struct Step
-    val::Float64
+    val::Int64
 end
 
 
 Base.@kwdef struct Weights
-    wₛ::Float64 = 2.1
-    wₒ::Float64 = 3.1
-    wₐ::Float64 = 1.1
-    wₕ::Float64 = 0.1
+    wₛ::Float64 = 0.5
+    wₒ::Float64 = 0.5
+    wₐ::Float64 = 0.3
+    wₕ::Float64 = 0.2
 end
 
 Base.@kwdef struct ModelParams
-    δ::Float64 = 0.2
+    δ::Float64 = 0.1
     init_agents::Int64 = 40
-    K::Int64 = 3
+    K::Float64 = 0.5
+    lookahead::Int64 = 10
 end
 
 
@@ -212,7 +213,7 @@ function spawn_new_entities!(world, amount)
     end
 
     directions = shuffle(rng, repeat([Clockwise, Counterclockwise], amount))
-    draws = rand(rng, Normal(2.0, params.δ), amount, 4)
+    draws = rand(rng, Normal(1.0, params.δ), amount, 4)
 
     for i in 1:amount
         position = rand(unoccupied_positions)
@@ -237,13 +238,16 @@ end
 
 @inline transform_to_unit_range(x) = -2 * x + 3
 
+
+lane_to_LR(laneIndex::Int) = laneIndex == 1 ? 1.0 : -1.0
+
 function update_habitus!(world)
     step = Ark.get_resource(world, Step)
     params = Ark.get_resource(world, ModelParams)
 
     for (e, pos, hab) in Query(world, (Position, Habitus))
         @inbounds for i in eachindex(e)
-            hab[i] = Habitus(hab[i].val + transform_to_unit_range(pos[i].x) / (params.K + step.val))
+            hab[i] = Habitus(clamp(hab[i].val + lane_to_LR(pos[i].x) / (params.K + step.val), -1.0, 1.0))
         end
     end
     return
@@ -255,7 +259,7 @@ end
 @inline is_left_relative(x::Int, dir::Direction) =
     (dir == Clockwise) ? (x == 1) : (x == 2)
 
-function compute_observations_for!(occ, pos_n::Position, dir_n::Direction, ring::Ring)
+function compute_observations_for!(world, occ, pos_n::Position, dir_n::Direction, ring::Ring)
     h = Int(ring.height)
 
     same_total = 0
@@ -263,10 +267,12 @@ function compute_observations_for!(occ, pos_n::Position, dir_n::Direction, ring:
     opp_total = 0
     opp_left = 0
 
+    params = Ark.get_resource(world, ModelParams)
+
     CL = 0
     CR = 0
 
-    for d in 1:10
+    for d in 1:params.lookahead
         y = ahead_y(pos_n.y, dir_n, d, h)
 
         # check both lanes at that zone
@@ -287,7 +293,7 @@ function compute_observations_for!(occ, pos_n::Position, dir_n::Direction, ring:
             end
 
             # “very close” = exactly one zone ahead
-            if d == 1 || d == 2
+            if d == 1 
                 if left_rel
                     CL = 1
                 else
@@ -334,7 +340,7 @@ function calculate_lr!(world)
 
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
-            SL, OL, CL, CR = compute_observations_for!(occ, pos[i], dir[i], ring)
+            SL, OL, CL, CR = compute_observations_for!(world, occ, pos[i], dir[i], ring)
             S_dic[e[i]] = SL
             O_dic[e[i]] = OL
             CL_dic[e[i]] = CL
@@ -345,7 +351,7 @@ function calculate_lr!(world)
     for (e, s, o, a, hg, ha, lr) in Query(world, (SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR))
         @inbounds for i in eachindex(e)
             s_val = weights.wₛ * s[i].val * (2 * S_dic[e[i]] - 1)
-            o_val = weights.wₒ + o[i].val * (2 * O_dic[e[i]] - 1)
+            o_val = weights.wₒ * o[i].val * (2 * O_dic[e[i]] - 1)
             avoidance_val = weights.wₐ * a[i].val * (CR_dic[e[i]] - CL_dic[e[i]])
             habit_strength = weights.wₕ * hg[i].val + ha[i].val
             lr[i] = LR(s_val + o_val + avoidance_val + habit_strength)
@@ -358,21 +364,170 @@ end
 function update!(world)
     step = Ark.get_resource(world, Step)
     step.val += 1
-    @info step
     return
 end
+
 
 function main(args)
     world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR)
 
-    Ark.add_resource!(world, Ring(2, 100))
+    Ark.add_resource!(world, Ring(2, 200))
     Ark.add_resource!(world, Random.default_rng())
     Ark.add_resource!(world, ModelParams())
     Ark.add_resource!(world, Weights())
     Ark.add_resource!(world, Step(1))
 
     spawn_init_entities!(world)
-    for _ in 1:20
+    for _ in 1:args
+
+        calculate_lr!(world)
+        store_prev_positions!(world)
+        move!(world)
+        update_habitus!(world)
+        update!(world)
+
+        new_entities = delete_on_collision!(world)
+        spawn_new_entities!(world, new_entities)
+    end
+    return world
+end
+
+# -------------------- Descriptive statistics after main --------------------
+
+function convention_stats(world)
+    ring = Ark.get_resource(world, Ring)
+
+    # counts
+    cw = 0; ccw = 0
+    cw_left = 0; ccw_left = 0
+    lane1 = 0; lane2 = 0
+
+    # collect habitus for summary
+    hab_vals = Float64[]
+
+    for (e, pos, dir, hab) in Query(world, (Position, Direction, Habitus))
+        @inbounds for i in eachindex(e)
+            x = pos[i].x
+            d = dir[i]
+
+            lane1 += (x == 1)
+            lane2 += (x == 2)
+
+            if d == Clockwise
+                cw += 1
+                cw_left += is_left_relative(x, d)  # left relative to movement
+            else
+                ccw += 1
+                ccw_left += is_left_relative(x, d)
+            end
+
+            push!(hab_vals, hab[i].val)
+        end
+    end
+
+    pL_cw = cw == 0 ? NaN : cw_left / cw
+    pL_ccw = ccw == 0 ? NaN : ccw_left / ccw
+
+    # convention strength in [0,1]; 0 = no convention (50/50), 1 = perfect (all on same relative side)
+    CS = (isnan(pL_cw) || isnan(pL_ccw)) ? NaN :
+        (abs(pL_cw - 0.5) + abs(pL_ccw - 0.5))
+
+    # agreement in [0,1]; 1 = both directions choose same relative side frequency
+    A = (isnan(pL_cw) || isnan(pL_ccw)) ? NaN :
+        (1 - abs(pL_cw - pL_ccw))
+
+    hab_summary = isempty(hab_vals) ? nothing : (
+            mean = mean(hab_vals),
+            sd = std(hab_vals),
+            q25 = quantile(hab_vals, 0.25),
+            median = quantile(hab_vals, 0.5),
+            q75 = quantile(hab_vals, 0.75),
+        )
+
+    return (
+        n_agents = cw + ccw,
+        cw = cw, ccw = ccw,
+        lane1 = lane1, lane2 = lane2,
+        p_left_rel_cw = pL_cw,
+        p_left_rel_ccw = pL_ccw,
+        convention_strength = CS,
+        agreement = A,
+        habitus = hab_summary,
+    )
+end
+
+"""
+Run simulation and print convention diagnostics.
+Usage (REPL):
+    world, stats = run_with_stats(10_000)
+"""
+function run_with_stats(steps::Int)
+    world = main(steps)
+    stats = convention_stats(world)
+
+    println("\n--- Convention stats (final state) ---")
+    println("agents:  $(stats.n_agents)   cw=$(stats.cw)  ccw=$(stats.ccw)")
+    println("lane use (absolute): lane1=$(stats.lane1) lane2=$(stats.lane2)")
+    println("p(left-relative | cw):   $(stats.p_left_rel_cw)")
+    println("p(left-relative | ccw):  $(stats.p_left_rel_ccw)")
+    println("convention strength (0..1): $(stats.convention_strength)")
+    println("agreement (0..1):          $(stats.agreement)")
+    if stats.habitus !== nothing
+        h = stats.habitus
+        println("habitus: mean=$(h.mean) sd=$(h.sd) q25=$(h.q25) median=$(h.median) q75=$(h.q75)")
+    end
+
+    return world, stats
+end
+
+
+# -------------------- Agreement over time + plot --------------------
+
+"Compute agreement A(t) = 1 - |pL_cw(t) - pL_ccw(t)| in [0,1]."
+function agreement_now(world)::Float64
+    cw = 0; ccw = 0
+    cw_left = 0; ccw_left = 0
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            x = pos[i].x
+            d = dir[i]
+            if d == Clockwise
+                cw += 1
+                cw_left += is_left_relative(x, d)
+            else
+                ccw += 1
+                ccw_left += is_left_relative(x, d)
+            end
+        end
+    end
+
+    if cw == 0 || ccw == 0
+        return NaN
+    end
+    pL_cw = cw_left / cw
+    pL_ccw = ccw_left / ccw
+    return 1 - abs(pL_cw - pL_ccw)
+end
+
+"""
+Run the simulation, log agreement each step, and plot it at the end.
+Returns: world, agreement_series
+"""
+function run_log_agreement(steps::Int)
+    world = Ark.World(Position, PrevPosition, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR)
+
+    Ark.add_resource!(world, Ring(2, 400))
+    Ark.add_resource!(world, Random.default_rng())
+    Ark.add_resource!(world, ModelParams())
+    Ark.add_resource!(world, Weights())
+    Ark.add_resource!(world, Step(1))
+
+    spawn_init_entities!(world)
+
+    agreement_series = Vector{Float64}(undef, steps)
+
+    for t in 1:steps
         update_habitus!(world)
         store_prev_positions!(world)
         move!(world)
@@ -380,16 +535,27 @@ function main(args)
         calculate_lr!(world)
 
         new_entities = delete_on_collision!(world)
-        @info new_entities
         spawn_new_entities!(world, new_entities)
-    end
-    return world
-end
-world = main(0)
 
-world
-for (e, lr) in Query(world, (Habitus,))
-    @inbounds for i in eachindex(e)
-        @info lr[i]
+        agreement_series[t] = agreement_now(world)
     end
+
+    p = plot(
+        1:steps, agreement_series,
+        xlabel = "Step",
+        ylabel = "Agreement (0..1)",
+        title = "Development of agreement over time",
+        legend = false,
+        ylim = (0, 1),
+        lw = 2,
+    )
+
+
+    return world, agreement_series, p
 end
+
+# Example run:
+world, A, p = run_log_agreement(550)
+
+p
+run_with_stats(1000)
