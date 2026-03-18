@@ -5,7 +5,8 @@ function update_habitus!(world)
 
     for (e, pos, hab, step) in Query(world, (Position, Habitus, Step))
         @inbounds for i in eachindex(e)
-            hab[i] = Habitus(clamp(hab[i].val + lane_to_LR(pos[i].x) / (params.K + step[i].val), -1.0, 1.0))
+            new_hab =Habitus(clamp(hab[i].val + lane_to_LR(pos[i].x) / (params.K + step[i].val), -1.0, 1.0))
+            hab[i] = new_hab
         end
     end
     return

@@ -3,7 +3,7 @@ function calculate_lr!(world)
     params = Ark.get_resource(world, ModelParams)
     ring = Ark.get_resource(world, Ring)
 
-    occ = Ark.get_resource(world, Occupancy).grid
+    occ = Ark.get_resource(world, PredictedOccupancy).grid
     for (e, pos, dir, s, o, a, hg, ha, lr) in Query(
             world,
             (Position, Direction, SSensitvity, OSensitvity, Avoidance, Habitgene, Habitus, LR)
@@ -11,6 +11,7 @@ function calculate_lr!(world)
         @inbounds for i in eachindex(e)
 
             SL, OL, CL, CR = compute_observations(
+                e[i],
                 occ, pos[i], dir[i], ring, params.lookahead
             )
 
@@ -26,7 +27,7 @@ function calculate_lr!(world)
     return nothing
 end
 
-@inline function compute_observations(
+@inline function compute_observations(e,
         occ, pos::Position, dir::Direction, ring::Ring, lookahead::Int
     )
     h = Int(ring.height)
@@ -43,9 +44,11 @@ end
         y = ahead_y(pos.y, dir, d, h)
 
         for x in 1:2
-            dir_other = occ[x, y]
-            dir_other === nothing && continue
+            occ[x,y] != nothing || continue
 
+            dir_other, e_other = occ[x, y]
+
+            e_other != e || continue
             left_rel = is_left_relative(x, dir)
 
             if dir_other == dir
@@ -58,9 +61,9 @@ end
 
             if d ≤ 2
                 if left_rel
-                    CL = 1
+                    CL += 1
                 else
-                    CR = 1
+                    CR += 1
                 end
             end
         end
@@ -73,23 +76,17 @@ end
 end
 
 
+#every agent assumes the cars just step forward once
 @inline function predict_position(
         pos::Position,
         dir::Direction,
-        lr::LR,
         ring::Ring,
         params,
         rng
     )
-    # lane choice
-    x = if rand(rng) < params.ϵ
-        lr.val > 0.0 ? 2 : 1
-    else
-        lr.val > 0.0 ? 1 : 2
-    end
 
     # forward movement
-    y = step_y(Position(x, pos.y), ring, dir)
+    y = step_y(Position(pos.x, pos.y), ring, dir)
 
-    return Position(x, y)
+    return Position(pos.x, y)
 end

@@ -3,7 +3,7 @@ struct Occupancy
 end
 
 struct PredictedOccupancy
-    grid::Matrix{Union{Nothing, Direction}}
+    grid::Matrix{Union{Nothing, Tuple{Direction,Entity}}}
 end
 
 function Occupancy(ring::Ring)
@@ -39,8 +39,8 @@ function rebuild_predicted_occupancy!(world)
 
     for (e, pos, dir, lr) in Query(world, (Position, Direction, LR))
         @inbounds for i in eachindex(e)
-            pnext = predict_position(pos[i], dir[i], lr[i], ring, params, rng)
-            grid[pnext.x, pnext.y] = dir[i]
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[pnext.x, pnext.y] = (dir[i],e[i])
         end
     end
 

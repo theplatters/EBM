@@ -30,7 +30,7 @@ include("analysis/plotting.jl")
 
 function main(args)
     world = setup_world(args)
-    for _ in 1:get!(args, :steps, 30)
+    for _ in 1:get!(args, :steps, 3000)
         step!(world)
     end
     return Ark.get_resource(world, Logger)
