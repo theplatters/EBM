@@ -1,0 +1,18 @@
+struct Ring
+    width::UInt64
+    height::UInt64
+end
+
+struct Position
+    x::Int64
+    y::Int64
+end
+
+struct PrevPosition
+    x::Int64
+    y::Int64
+end
+
+PrevPosition(p::Position) = PrevPosition(p.x, p.y)
+Position(p::PrevPosition) = Position(p.x, p.y)
+Position(t::Tuple{UInt64, UInt64}) = Position(first(t), last(t))
