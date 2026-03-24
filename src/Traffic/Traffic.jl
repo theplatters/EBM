@@ -6,16 +6,18 @@ using Distributions
 using LinearAlgebra
 using StatsBase
 using GLMakie
+using IterTools
+using OpenCL
 
-
-include("components/spatial.jl")
 include("components/agents.jl")
+include("components/spatial.jl")
 include("components/traits.jl")
 
 include("core/parameters.jl")
-include("core/occupancy.jl")
 include("core/resources.jl")
 include("core/world.jl")
+
+include("simulation/setup.jl")
 
 include("systems/movement.jl")
 include("systems/collision.jl")
@@ -26,11 +28,14 @@ include("systems/habitus.jl")
 include("simulation/step.jl")
 
 include("analysis/logger.jl")
+
+include("analysis/parameter_sweeps.jl")
 include("analysis/plotting.jl")
+include("analysis/regressions.jl")
 
 function main(args)
     world = setup_world(args)
-    for _ in 1:get!(args, :steps, 3000)
+    for _ in 1:get!(args, :steps, 100)
         step!(world)
     end
     return Ark.get_resource(world, Logger)

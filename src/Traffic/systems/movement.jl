@@ -36,3 +36,17 @@ function store_prev_positions!(world)
     end
     return
 end
+
+function rebuild_occupancy!(world)
+    occ = Ark.get_resource(world, Occupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            grid[pos[i].x, pos[i].y] = dir[i]
+        end
+    end
+
+    return occ
+end

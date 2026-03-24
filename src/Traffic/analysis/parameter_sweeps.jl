@@ -1,0 +1,40 @@
+using ProgressMeter
+
+struct SweepResult
+    weights::Weights
+    logger::MeanLogger
+end
+
+function simplex_grid(resolution)
+    n = resolution - 1
+    step = 1.0 / n
+    return [
+        (i * step, j * step, k * step, (n - i - j - k) * step)
+            for i in 0:n
+            for j in 0:(n - i)
+            for k in 0:(n - i - j)
+    ]
+end
+
+function sweep_weights(; resolution = 5, depth = 20)
+    vals = range(0.0, 1.0; length = resolution)
+
+    # Generate all 4-tuples from the simplex (sum == 1)
+    combos = simplex_grid(resolution)
+    results = SweepResult[]
+    lk = ReentrantLock()
+
+    p = Progress(length(combos); showspeed = true)
+    Threads.@threads for (ws, wo, wa, wh) in combos
+        weights = Weights(wₛ = ws, wₒ = wo, wₐ = wa, wₕ = wh)
+        result = MeanLogger([Traffic.main(Dict{Symbol, Any}(:weights => weights)) for i in 1:depth])
+        lock(lk) do
+            push!(results, SweepResult(weights, result))
+
+            next!(p)
+        end
+    end
+    finish!(p)
+
+    return results
+end

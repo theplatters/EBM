@@ -27,7 +27,8 @@ function calculate_lr!(world)
     return nothing
 end
 
-@inline function compute_observations(e,
+@inline function compute_observations(
+        e,
         occ, pos::Position, dir::Direction, ring::Ring, lookahead::Int
     )
     h = Int(ring.height)
@@ -44,26 +45,26 @@ end
         y = ahead_y(pos.y, dir, d, h)
 
         for x in 1:2
-            occ[x,y] != nothing || continue
+            occ[x, y] != nothing || continue
 
-            dir_other, e_other = occ[x, y]
+            dir_other, e_other, occ_weight = occ[x, y]
 
             e_other != e || continue
             left_rel = is_left_relative(x, dir)
 
             if dir_other == dir
-                same_total += 1
-                same_left += left_rel
+                same_total += occ_weight
+                same_left += occ_weight * left_rel
             else
-                opp_total += 1
-                opp_left += left_rel
+                opp_total += occ_weight
+                opp_left += occ_weight * left_rel
             end
 
             if d ≤ 2
                 if left_rel
-                    CL += 1
+                    CL += occ_weight
                 else
-                    CR += 1
+                    CR += occ_weight
                 end
             end
         end
@@ -75,6 +76,44 @@ end
     return SL, OL, CL, CR
 end
 
+function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+
+    for (e, pos, dir, habitus) in Query(world, (Position, Direction, Habitus))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[pnext.x, pnext.y] = (dir[i], e[i], abs(habitus[i].val))
+            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1 - abs(habitus[i].val))
+        end
+    end
+
+    return occ
+end
+
+function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+    mean_habitus = Ark.get_resource(world, MeanHabitus)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[pnext.x, pnext.y] = (dir[i], e[i], mean_habitus.abs)
+            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1 - mean_habitus.abs)
+        end
+    end
+
+    return occ
+end
 
 #every agent assumes the cars just step forward once
 @inline function predict_position(
