@@ -80,15 +80,29 @@ function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
     fill!(grid, nothing)
+
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
 
     for (e, pos, dir, habitus) in Query(world, (Position, Direction, Habitus))
         @inbounds for i in eachindex(e)
+
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            grid[pnext.x, pnext.y] = (dir[i], e[i], abs(habitus[i].val))
-            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1 - abs(habitus[i].val))
+
+            h = habitus[i].val
+            w = abs(h)
+
+            # determine which lane is preferred
+            prefer_lane1 = (dir[i] == Clockwise  && h > 0) || (dir[i] == Counterclockwise && h < 0)
+
+            if prefer_lane1
+                grid[1, pnext.y] = (dir[i], e[i], w)
+                grid[2, pnext.y] = (dir[i], e[i], 1 - w)
+            else
+                grid[2, pnext.y] = (dir[i], e[i], w)
+                grid[1, pnext.y] = (dir[i], e[i], 1 - w)
+            end
         end
     end
 
@@ -109,6 +123,81 @@ function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
             grid[pnext.x, pnext.y] = (dir[i], e[i], mean_habitus.abs)
             grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1 - mean_habitus.abs)
+        end
+    end
+
+    return occ
+end
+
+function rebuild_predicted_occupancy!(world, ::NaiveStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+    mean_habitus = Ark.get_resource(world, MeanHabitus)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[pnext.x, pnext.y] = (dir[i], e[i], 1.0)
+        end
+    end
+
+    return occ
+end
+
+function rebuild_predicted_occupancy!(world, ::UnsureStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[1, pnext.y] = (dir[i], e[i], 0.5)
+            grid[2, pnext.y] = (dir[i], e[i], 0.5)
+        end
+    end
+
+    return occ
+end
+function rebuild_predicted_occupancy!(world, ::SwitchStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1.0)
+        end
+    end
+
+    return occ
+end
+
+function rebuild_predicted_occupancy!(world, ::RandomStrategy)
+    occ = Ark.get_resource(world, PredictedOccupancy)
+    grid = occ.grid
+    fill!(grid, nothing)
+    ring = Ark.get_resource(world, Ring)
+    params = Ark.get_resource(world, ModelParams)
+    rng = Ark.get_resource(world, TaskLocalRNG)
+
+    for (e, pos, dir) in Query(world, (Position, Direction))
+        @inbounds for i in eachindex(e)
+            pnext = predict_position(pos[i], dir[i], ring, params, rng)
+            r = rand(rng)
+            grid[1, pnext.y] = (dir[i], e[i], r)
+            grid[2, pnext.y] = (dir[i], e[i], 1 - r)
         end
     end
 

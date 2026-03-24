@@ -16,7 +16,7 @@ function simplex_grid(resolution)
     ]
 end
 
-function sweep_weights(; resolution = 5, depth = 20)
+function sweep_weights(; resolution = 5, depth = 20, strategy::T) where {T <: OccupancyStrategy}
     vals = range(0.0, 1.0; length = resolution)
 
     # Generate all 4-tuples from the simplex (sum == 1)
@@ -27,7 +27,7 @@ function sweep_weights(; resolution = 5, depth = 20)
     p = Progress(length(combos); showspeed = true)
     Threads.@threads for (ws, wo, wa, wh) in combos
         weights = Weights(wₛ = ws, wₒ = wo, wₐ = wa, wₕ = wh)
-        result = MeanLogger([Traffic.main(Dict{Symbol, Any}(:weights => weights)) for i in 1:depth])
+        result = MeanLogger([main(ModelArgs(prediction_strategy = strategy, weights = weights)) for i in 1:depth])
         lock(lk) do
             push!(results, SweepResult(weights, result))
 
@@ -38,3 +38,5 @@ function sweep_weights(; resolution = 5, depth = 20)
 
     return results
 end
+
+MeanLogger(sweep_res::Vector{SweepResult}) = MeanLogger(map(x -> x.logger, sweep_res))

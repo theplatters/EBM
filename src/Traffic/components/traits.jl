@@ -26,6 +26,10 @@ end
 abstract type OccupancyStrategy end
 struct PerEntityHabitusStrategy <: OccupancyStrategy end
 struct MeanHabitusStrategy <: OccupancyStrategy end
+struct NaiveStrategy <: OccupancyStrategy end
+struct UnsureStrategy <: OccupancyStrategy end
+struct RandomStrategy <: OccupancyStrategy end
+struct SwitchStrategy <: OccupancyStrategy end
 
 struct PredictedOccupancy
     grid::Matrix{Union{Nothing, Tuple{Direction, Entity, Float64}}}

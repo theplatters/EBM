@@ -70,7 +70,6 @@ function plot_logger(logger::AbstractLogger)
     ax2r = Axis(f[2, 1], yaxisposition = :right, ylabel = "deaths")
 
     hidexdecorations!(ax2r)
-    hideydecorations!(ax2r, ticks = false)
 
     linkxaxes!(ax2, ax2r)
 

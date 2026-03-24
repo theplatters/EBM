@@ -35,8 +35,8 @@ include("analysis/regressions.jl")
 
 function main(args)
     world = setup_world(args)
-    for _ in 1:get!(args, :steps, 100)
-        step!(world)
+    for _ in 1:args.steps
+        step!(world, args.prediction_strategy)
     end
     return Ark.get_resource(world, Logger)
 end

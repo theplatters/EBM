@@ -7,17 +7,10 @@ end
 
 Base.@kwdef struct ModelParams
     δ::Float64 = 0.2
-    ϵ::Float64 = 0.01
+    ϵ::Float64 = 0.1
     init_agents::Int64 = 40
     K::Float64 = 10.0
     lookahead::Int64 = 20
     ring_x::Int64 = 2
     ring_y::Int64 = 100
-end
-
-
-Base.@kwdef struct ModelArgs
-    seed::Union{Nothing, Int} = nothing
-    params::ModelParams = ModelParams()
-    weights::Weights = Weights()
 end

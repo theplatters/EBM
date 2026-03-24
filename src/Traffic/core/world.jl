@@ -1,4 +1,4 @@
-function setup_world(args)
+function setup_world(args::ModelArgs{T}) where {T}
     world = Ark.World(
         Position,
         PrevPosition,
