@@ -14,10 +14,10 @@ include("components/spatial.jl")
 include("components/traits.jl")
 
 include("core/parameters.jl")
+include("simulation/setup.jl")
 include("core/resources.jl")
 include("core/world.jl")
 
-include("simulation/setup.jl")
 
 include("systems/movement.jl")
 include("systems/collision.jl")
@@ -32,6 +32,7 @@ include("analysis/logger.jl")
 include("analysis/parameter_sweeps.jl")
 include("analysis/plotting.jl")
 include("analysis/regressions.jl")
+include("analysis/runner.jl")
 
 function main(args)
     world = setup_world(args)
