@@ -5,7 +5,7 @@ using Random
 using Distributions
 using LinearAlgebra
 using StatsBase
-using GLMakie
+using CairoMakie
 using IterTools
 using OpenCL
 
