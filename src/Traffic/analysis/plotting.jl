@@ -32,13 +32,11 @@ function plot_torus(grid::Vector{Matrix{Int}})
     framerate = 5
     timestamps = 1:length(grid)
 
-    i = 1
     record(
         f, "time_animation.mkv", timestamps;
         framerate = framerate
     ) do t
-        step[] = i
-        i += 1
+        step[] = t
     end
     return f
 
@@ -160,4 +158,51 @@ function plot_parallell_coordinates(res::Vector{SweepResult})
 
 
     return fig
+end
+
+function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
+    f = Figure()
+    ax = Axis(f[1, 1], xlabel = "Steps", ylabel = "Mean Age")
+    ax2 = Axis(f[2, 1], xlabel = "Steps", ylabel = "Mean abs Habitus")
+    ax22 = Axis(f[2, 2], xlabel = "Steps", ylabel = "Mean abs Habitus")
+    ax3 = Axis(f[3, 1], xlabel = "Steps", ylabel = "Mean")
+    ax4 = Axis(f[3, 2], xlabel = "Steps", ylabel = "Mean")
+    ax5 = Axis(f[3, 3], xlabel = "Steps", ylabel = "Mean")
+
+    linkxaxes!(ax, ax2, ax22, ax3, ax4, ax5)
+
+    mean_logger = Dict(k => MeanLogger(v) for (k, v) in d)
+
+    mean_age = Dict(k => v.mean_age for (k, v) in mean_logger)
+    for (strategy, vals) in mean_age
+        lines!(ax, vals, label = string(typeof(strategy)))
+    end
+    Legend(f[1, 2], ax)
+
+
+    mean_abs_habitus = Dict(k => (v.mean_abs_habitus, v.mean_habitus) for (k, v) in mean_logger)
+    for (strategy, (abs_hab, hab)) in mean_abs_habitus
+        lines!(ax2, abs_hab, label = string(typeof(strategy)))
+        lines!(ax22, hab, label = string(typeof(strategy)))
+    end
+    Legend(f[2, 3], ax2)
+
+    distribution_mean = Dict(k => (mean.(v.distribution_A), var.(v.distribution_A)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax3, mean, label = string(typeof(strategy)))
+    end
+
+    distribution_mean = Dict(k => (mean.(v.distribution_O), var.(v.distribution_O)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax4, mean, label = string(typeof(strategy)))
+    end
+
+    distribution_mean = Dict(k => (mean.(v.distribution_S), var.(v.distribution_S)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax5, mean, label = string(typeof(strategy)))
+    end
+    Legend(f[3, 4], ax3)
+
+
+    return f
 end

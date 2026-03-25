@@ -178,3 +178,8 @@ function MeanLogger(loggers::AbstractArray{T}) where {T <: AbstractLogger}
         distribution_A
     )
 end
+
+
+function convergence(l::AbstractLogger)
+    return maximum.(l.left) / 20
+end

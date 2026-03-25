@@ -7,7 +7,7 @@ end
 
 Base.@kwdef struct ModelParams
     δ::Float64 = 0.2
-    ϵ::Float64 = 0.1
+    ϵ::Float64 = 0.01
     init_agents::Int64 = 40
     K::Float64 = 10.0
     lookahead::Int64 = 20
