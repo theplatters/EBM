@@ -105,6 +105,60 @@ function animate_densities(logger::AbstractLogger, framerate = 5)
     return nothing
 end
 
+function plot_parallell_coordinates(res::Dict{OccupancyStrategy, Vector{SweepResult}})
+  mapped = Dict( k=> map(v) do el
+        [
+            el.weights.wₛ, el.weights.wₒ, el.weights.wₐ, el.weights.wₕ,
+            mean(el.logger.mean_age),
+        ]
+      end 
+      for (k,v) in res)
+
+    output_vals = [row[5] for row in mapped]
+    lo, hi = minimum(output_vals), maximum(output_vals)
+    normalize = v -> (v - lo) / (hi - lo + eps())
+
+    map(mapped) do (v)
+        v[5] = v[5] / hi
+    end
+
+    cmap = cgrad(:viridis)
+    colors = [cmap[normalize(row[5])] for row in mapped]
+
+    sort!(mapped)
+    fig = Figure()
+    ax = Axis(
+        fig[1, 1],
+        xticks = (1:5, ["wₛ", "wₒ", "wₐ", "wₕ", "habitus"]),
+        ylabel = "value"
+    )
+    step = Observable(1)
+
+
+    row = @lift mapped[$step]
+    color = @lift colors[$step]
+
+    lines!(ax, 1:5, row; color = color, linewidth = 1.2, alpha = 0.6)
+
+    Colorbar(
+        fig[1, 2];
+        colormap = :viridis,
+        limits = (0, 1),
+        label = "mean abs habitus"
+    )
+
+
+    timestamps = 1:length(mapped)
+    record(
+        fig, "krass.mkv", timestamps;
+        framerate = 10
+    ) do t
+        step[] = t
+    end
+
+
+    return fig
+end
 
 function plot_parallell_coordinates(res::Vector{SweepResult})
     mapped = map(res) do el
@@ -168,6 +222,47 @@ function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
     ax3 = Axis(f[3, 1], xlabel = "Steps", ylabel = "Mean")
     ax4 = Axis(f[3, 2], xlabel = "Steps", ylabel = "Mean")
     ax5 = Axis(f[3, 3], xlabel = "Steps", ylabel = "Mean")
+
+    linkxaxes!(ax, ax2, ax22, ax3, ax4, ax5)
+
+    mean_logger = Dict(k => MeanLogger(v) for (k, v) in d)
+
+    mean_age = Dict(k => v.mean_age for (k, v) in mean_logger)
+    for (strategy, vals) in mean_age
+        lines!(ax, vals, label = string(typeof(strategy)))
+    end
+    Legend(f[1, 2], ax)
+
+
+    mean_abs_habitus = Dict(k => (v.mean_abs_habitus, v.mean_habitus) for (k, v) in mean_logger)
+    for (strategy, (abs_hab, hab)) in mean_abs_habitus
+        lines!(ax2, abs_hab, label = string(typeof(strategy)))
+        lines!(ax22, hab, label = string(typeof(strategy)))
+    end
+    Legend(f[2, 3], ax2)
+
+    distribution_mean = Dict(k => (mean.(v.distribution_A), var.(v.distribution_A)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax3, mean, label = string(typeof(strategy)))
+    end
+
+    distribution_mean = Dict(k => (mean.(v.distribution_O), var.(v.distribution_O)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax4, mean, label = string(typeof(strategy)))
+    end
+
+    distribution_mean = Dict(k => (mean.(v.distribution_S), var.(v.distribution_S)) for (k, v) in mean_logger)
+    for (strategy, (mean, var)) in distribution_mean
+        lines!(ax5, mean, label = string(typeof(strategy)))
+    end
+    Legend(f[3, 4], ax3)
+
+
+    return f
+end
+function plot_sweeps_death(d::Dict{OccupancyStrategy, Vector{SweepResult}})
+    f = Figure()
+    ax = Axis(f[1, 1], xlabel = "Steps", ylabel = "Deaths")
 
     linkxaxes!(ax, ax2, ax22, ax3, ax4, ax5)
 

@@ -55,7 +55,7 @@
 
 - Real-world agents (especially cars) operate in parallel.
 - Why did #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") choose a sequential model? #pause 
-  - Obviously because it is the simple approach?? #pause
+  - Maybe because it is the simplest approach?? #pause
   - But why does the sequential approach lend itself so well for these models?
 
 
@@ -66,9 +66,10 @@
 ]
 
 #speaker-note[
-  + Emphasize that while sequential is "simple" to code, it creates a massive performance bottleneck.
-  + This is where ECS comes in to break the coupling.
+  + Ask the question why that is and that we have to go into more detail
 ]
+
+= ABM layouts
 
 == Traditional ABM layout
 #cetz-canvas(length: 1.7cm, {
@@ -125,9 +126,17 @@
     bezier((1.0, -5.0), (3.5 + 1.5, 0.3), (5.5, -6.5), (3.-3 + 1.5, 1.5))
     bezier((5.0, -5.0), (5.5 + 1.5, 0.3), (11.5, -6.5), (5.-3 + 1.5, 1.5))
 })
+#speaker-note[
+  + Agents have step functions 
+  + these step functions run sequentialy
+]
 
 == What if?
 
+#speaker-note[
+  + What if we group the data not by agents but by systems
+  + Luckily  paradigm exists => ECS
+]
 #cetz-canvas(length: 1.6cm, {
   import cetz.draw: *
   
@@ -181,6 +190,42 @@
 })
 
 
+= ECS (Entity Component System)!
+
+== The history of ECS
+
+- The origins of ECS reach back to 1959 where Ivan Sutherland pioneered it in a drawing program,one of the first graphical user interfaces  @sutherlandSketchpadManmachineGraphical2003. 
+- Now ECS is primarily used in game development. (e.g Bevy Engine, Unity Dots, ...)
+
+== A short introduction
+
+- ECS is a way to separate data from functionality
+- 
+#pagebreak(weak: true)
+#table(
+  columns: (auto, auto, auto, auto),
+  inset: 7pt,
+  align: horizon,
+  [*Concept*],
+  [*Description*],
+  [*ABM Equivalent*],
+  [*Role in Simulation*],
+
+  [*Entity*],
+  [Unique object in the world],
+  [Agent],
+  [Represents an individual actor in the simulation],
+
+  [*Component*],
+  [Data attached to an entity],
+  [Agent attributes / state variables],
+  [Stores properties such as position, preferences, or resources],
+
+  [*System*],
+  [Function operating on sets of components],
+  [Part of the agent step function],
+  [Implements simulation rules and updates state],
+)
 
 == Complex Animation
 
