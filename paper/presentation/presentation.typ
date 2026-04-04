@@ -50,25 +50,23 @@
 
 == The original model
 
+- Cars drive sequentially on a $100 times 2$ torus and decide in each step, whether to turn take the left or right lane based on the decision formula
+
+$ "LR" = w_s  S_s (2 s - 1) +  
+        w_o  S_o  (2 o - 1) + 
+        w_a  S_a  (c_r - c_l) + 
+        w_h S_h h. $
 
 == The real world
 
+#speaker-note[
+  + Ask why abs enforce sequential logic that is and that we have to go into more detail
+]
 - Real-world agents (especially cars) operate in parallel.
 - Why did #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") choose a sequential model? #pause 
-  - Maybe because it is the simplest approach?? #pause
+  - For sure because the model is not intended to model real traffic, but to show an example.
+  - But also in the classic ABM framework the sequential approach is the most natural approach. #pause
   - But why does the sequential approach lend itself so well for these models?
-
-
-#pause
-// Then use it like this:
-#info-box(title: "The Structural Hurdle")[
-  Traditional ABM frameworks structurally enforce sequential logic by coupling state and behavior.
-]
-
-#speaker-note[
-  + Ask the question why that is and that we have to go into more detail
-]
-
 = ABM layouts
 
 == Traditional ABM layout
@@ -227,152 +225,430 @@
   [Implements simulation rules and updates state],
 )
 
-== Complex Animation
-
-At subslide #touying-fn-wrapper((self: none) => str(self.subslide)), we can
-
-use #uncover("2-")[`#uncover` function] for reserving space,
-
-use #only("2-")[`#only` function] for not reserving space,
-
-#alternatives[call `#only` multiple times \u{2717}][use `#alternatives` function #sym.checkmark] for choosing one of the alternatives.
+== Data layout in a classic ABM
 
 
-== Callback Style Animation
-
-#slide(
-  repeat: 3,
-  self => [
-    #let (uncover, only, alternatives) = utils.methods(self)
-
-    At subslide #self.subslide, we can
-
-    use #uncover("2-")[`#uncover` function] for reserving space,
-
-    use #only("2-")[`#only` function] for not reserving space,
-
-    #alternatives[call `#only` multiple times \u{2717}][use `#alternatives` function #sym.checkmark] for choosing one of the alternatives.
-  ],
-)
-
-
-== Math Equation Animation
-
-Equation with `pause`:
-
-$
-  f(x) &= pause x^2 + 2x + 1 \
-  &= pause (x + 1)^2 \
-$
-
-#meanwhile
-
-Here, #pause we have the expression of $f(x)$.
-
-#pause
-
-By factorizing, we can obtain this result.
-
-
-== CeTZ Animation
-
-CeTZ Animation in Touying:
-
-#cetz-canvas({
+#cetz-canvas(length: 1.6cm, {
   import cetz.draw: *
 
-  rect((0, 0), (5, 5))
+  // -----------------------------
+  // Configuration
+  // -----------------------------
+  let agent-labels = ("Agent A", "Agent B", "Agent Z")
+  let data-labels = ("Position", "LR", "Habitus", "Parameters")
 
-  (pause,)
+  let cell-width = 3.0
+  let cell-height = 0.8
+  let margin = 0.5
+  let data-offset = 0.4
+  let ellipsis-gap = 1.5
 
-  rect((0, 0), (1, 1))
-  rect((1, 1), (2, 2))
-  rect((2, 2), (3, 3))
+  let agent-top = 0.5
+  let agent-bottom = -(data-labels.len() + 3) * cell-height
 
-  (pause,)
+  let data-title-y = -0.5
+  let method-title-y = -4.1
+  let method-box-y = -4.7
 
-  line((0, 0), (2.5, 2.5), name: "line")
+  let resource-x = 12.2
+
+  // Array container padding
+  let array-pad-x = 0.35
+  let array-pad-top = 0.55
+  let array-pad-bottom = 0.75
+
+  // -----------------------------
+  // Styles
+  // -----------------------------
+  let world-fill = green.lighten(95%)
+  let world-stroke = green.lighten(50%)
+  let world-text = green.darken(40%)
+
+  let panel-fill = blue.lighten(90%)
+  let panel-stroke = blue.lighten(50%)
+  let panel-text = blue.darken(20%)
+
+  let box-fill = white
+  let box-stroke = gray.lighten(50%)
+
+  let array-stroke = blue.darken(10%)
+  let array-fill = blue.lighten(96%)
+
+  // -----------------------------
+  // Helpers
+  // -----------------------------
+  let draw-entry-box(x, y, w, label) = {
+    rect(
+      (x + 0.2, y + 0.3),
+      (x + w - 0.2, y - 0.3),
+      fill: box-fill,
+      stroke: box-stroke,
+      radius: 1pt,
+    )
+    content((x + w / 2, y), text(size: 9pt, style: "italic", label))
+  }
+
+  let draw-agent-column(x, label) = {
+    rect(
+      (x, agent-top),
+      (x + cell-width, agent-bottom),
+      fill: panel-fill,
+      stroke: panel-stroke,
+      radius: 2pt,
+    )
+
+    content(
+      (x + cell-width / 2, 0),
+      text(weight: "bold", size: 12pt, fill: panel-text, label),
+    )
+
+    content(
+      (x + 0.5, data-title-y),
+      text(weight: "bold", size: 12pt, fill: panel-text, "Data:"),
+    )
+
+    for (i, item) in data-labels.enumerate() {
+      let y = -(i + 1) * cell-height - data-offset
+      draw-entry-box(x, y, cell-width, item)
+    }
+
+    content(
+      (x + 0.7, method-title-y),
+      text(weight: "bold", size: 12pt, fill: panel-text, "Methods:"),
+    )
+    draw-entry-box(x, method-box-y, cell-width, "update")
+  }
+
+  let draw-resource-panel(x, y-top, y-bottom, title, subtitle) = {
+    rect(
+      (x, y-top),
+      (x + cell-width, y-bottom),
+      fill: panel-fill,
+      stroke: panel-stroke,
+      radius: 2pt,
+    )
+
+    let center-y = (y-top + y-bottom) / 2
+    content(
+      (x + cell-width / 2, center-y + 0.5),
+      text(weight: "bold", size: 12pt, fill: panel-text, title),
+    )
+    content(
+      (x + cell-width / 2, center-y - 0.5),
+      text(weight: "bold", size: 12pt, fill: panel-text, subtitle),
+    )
+  }
+
+  let agent-x(j) = if j == agent-labels.len() - 1 {
+    j * (cell-width + margin) + ellipsis-gap
+  } else {
+    j * (cell-width + margin)
+  }
+
+  // -----------------------------
+  // World background
+  // -----------------------------
+  rect(
+    (-1, 1.5),
+    (16, -6.8),
+    fill: world-fill,
+    stroke: world-stroke,
+    radius: 2pt,
+  )
+  content(
+    (6, -6.2),
+    text(weight: "bold", size: 20pt, fill: world-text, "World"),
+  )
+
+  // -----------------------------
+  // Agents array container
+  // -----------------------------
+  let first-agent-x = agent-x(0)
+  let last-agent-x = agent-x(agent-labels.len() - 1)
+
+  let array-left = first-agent-x - array-pad-x
+  let array-right = last-agent-x + cell-width + array-pad-x
+  let array-top = agent-top + array-pad-top
+  let array-bottom = agent-bottom - array-pad-bottom
+
+  rect(
+    (array-left, array-top),
+    (array-right, array-bottom),
+    fill: array-fill,
+    stroke: array-stroke,
+    radius: 3pt,
+  )
+
+  content(
+    (array-left + 1.0, array-top - 0.25),
+    text(weight: "bold", size: 13pt, fill: array-stroke, "Agents[]"),
+  )
+
+  // Optional array brackets effect
+  content(
+    (array-left - 0.15, (array-top + array-bottom) / 2),
+    text(size: 28pt, weight: "bold", fill: array-stroke, "["),
+  )
+  content(
+    (array-right + 0.15, (array-top + array-bottom) / 2),
+    text(size: 28pt, weight: "bold", fill: array-stroke, "]"),
+  )
+
+  // -----------------------------
+  // Agents as array entries
+  // -----------------------------
+  for (j, agent) in agent-labels.enumerate() {
+    let x = agent-x(j)
+
+    if j == agent-labels.len() - 1 {
+      let dots-x = x - ellipsis-gap / 2 - margin / 2
+      content(
+        (dots-x, -2.5),
+        text(size: 25pt, weight: "bold", fill: panel-text, [$dots$]),
+      )
+      content(
+        (dots-x, array-bottom - 0.25),
+        text(size: 10pt, fill: panel-text, "…"),
+      )
+    }
+
+    draw-agent-column(x, agent)
+
+    let array-label = if j == 2 {
+      "n -1"
+    } else {
+      str(j)
+    }
+
+  content(
+    (x + cell-width / 2, array-bottom - 0.25),
+    text(size: 10pt, fill: panel-text, "[" +array-label + "]"),
+    )
+  }
+
+  // -----------------------------
+  // Resources
+  // -----------------------------
+  let resources = (
+    (0.5, -3 * cell-height, "Resource A", "Occupation Table"),
+    (-3.0, -7.0 * cell-height, "Resource B", "RNG"),
+  )
+
+  for ((top, bottom, title, subtitle)) in resources {
+    draw-resource-panel(resource-x, top, bottom, title, subtitle)
+  }
+})
+== ECS data layout
+
+#cetz-canvas(length: 1.6cm, {
+  import cetz.draw: *
+
+  // -----------------------------
+  // Configuration
+  // -----------------------------
+  let entity-labels = ("Entity 1", "Entity 2", "Entity N")
+  let data-labels = ("Position", "LR", "Habitus", "Parameters")
+
+  let cell-width = 3.0
+  let cell-height = 0.8
+  let margin = 0.5
+  let data-offset = 0.4
+  let ellipsis-gap = 1.5
+
+  let entity-left = 0.5
+  let entity-right = -(data-labels.len() + 3) * cell-width
+
+  let data-title-x = 0.5
+  let method-title-x = -3.1
+  let method-box-x = -4.7
+
+  let resource-x = 12.2
+
+  // Array container padding
+  let array-pad-x = 0.35
+  let array-pad-top = 0.55
+  let array-pad-bottom = 0.75
+
+  // -----------------------------
+  // Styles
+  // -----------------------------
+  let world-fill = green.lighten(95%)
+  let world-stroke = green.lighten(50%)
+  let world-text = green.darken(40%)
+
+  let panel-fill = blue.lighten(90%)
+  let panel-stroke = blue.lighten(50%)
+  let panel-text = blue.darken(20%)
+
+  let box-fill = white
+  let box-stroke = gray.lighten(50%)
+
+  let array-stroke = blue.darken(10%)
+  let array-fill = blue.lighten(96%)
+
+  // -----------------------------
+  // Helpers
+  // -----------------------------
+  let draw-entry-box(x, y, w, label) = {
+    rect(
+      (x + 0.2, y + 0.3),
+      (x + w - 0.2, y - 0.3),
+      fill: box-fill,
+      stroke: box-stroke,
+      radius: 1pt,
+    )
+    content((x + w / 2, y), text(size: 9pt, style: "italic", label))
+  }
+
+  let draw-entity-row(y, label) = {
+    rect(
+      (entity-left, y ),
+      (entity-right, y + cell-height),
+      fill: panel-fill,
+      stroke: panel-stroke,
+      radius: 2pt,
+    )
+
+    content(
+      (0, y + cell-height / 2),
+      text(weight: "bold", size: 12pt, fill: panel-text, label),
+    )
+
+    content(
+      (data-title-x,y + 0.5),
+      text(weight: "bold", size: 12pt, fill: panel-text, "Data:"),
+    )
+
+    for (i, item) in data-labels.enumerate() {
+      let x = -(i + 1) * cell-width - data-offset
+      draw-entry-box(x, y, cell-width, item)
+    }
+
+  }
+
+  let draw-resource-panel(x, y-top, y-bottom, title, subtitle) = {
+    rect(
+      (x, y-top),
+      (x + cell-width, y-bottom),
+      fill: panel-fill,
+      stroke: panel-stroke,
+      radius: 2pt,
+    )
+
+    let center-y = (y-top + y-bottom) / 2
+    content(
+      (x + cell-width / 2, center-y + 0.5),
+      text(weight: "bold", size: 12pt, fill: panel-text, title),
+    )
+    content(
+      (x + cell-width / 2, center-y - 0.5),
+      text(weight: "bold", size: 12pt, fill: panel-text, subtitle),
+    )
+  }
+
+  let agent-x(j) = if j == entity-labels.len() - 1 {
+    j * (cell-width + margin) + ellipsis-gap
+  } else {
+    j * (cell-width + margin)
+  }
+
+  // -----------------------------
+  // World background
+  // -----------------------------
+  rect(
+    (-1, 1.5),
+    (16, -6.8),
+    fill: world-fill,
+    stroke: world-stroke,
+    radius: 2pt,
+  )
+  content(
+    (6, -6.2),
+    text(weight: "bold", size: 20pt, fill: world-text, "World"),
+  )
+
+  // -----------------------------
+  // Agents array container
+  // -----------------------------
+  let first-agent-x = agent-x(0)
+  let last-agent-x = agent-x(entity-labels.len() - 1)
+
+  let array-left = first-agent-x - array-pad-x
+  let array-right = last-agent-x + cell-width + array-pad-x
+  let array-top = entity-left + array-pad-top
+  let array-bottom = entity-right - array-pad-bottom
+
+  rect(
+    (array-left, array-top),
+    (array-right, array-bottom),
+    fill: array-fill,
+    stroke: array-stroke,
+    radius: 3pt,
+  )
+
+  content(
+    (array-left + 1.0, array-top - 0.25),
+    text(weight: "bold", size: 13pt, fill: array-stroke, "Agents[]"),
+  )
+
+  // Optional array brackets effect
+  content(
+    (array-left - 0.15, (array-top + array-bottom) / 2),
+    text(size: 28pt, weight: "bold", fill: array-stroke, "["),
+  )
+  content(
+    (array-right + 0.15, (array-top + array-bottom) / 2),
+    text(size: 28pt, weight: "bold", fill: array-stroke, "]"),
+  )
+
+  // -----------------------------
+  // Agents as array entries
+  // -----------------------------
+  for (j, agent) in entity-labels.enumerate() {
+    let x = agent-x(j)
+
+    if j == entity-labels.len() - 1 {
+      let dots-x = x - ellipsis-gap / 2 - margin / 2
+      content(
+        (dots-x, -2.5),
+        text(size: 25pt, weight: "bold", fill: panel-text, [$dots$]),
+      )
+      content(
+        (dots-x, array-bottom - 0.25),
+        text(size: 10pt, fill: panel-text, "…"),
+      )
+    }
+
+    draw-entity-row(x, agent)
+
+    let array-label = if j == 2 {
+      "n -1"
+    } else {
+      str(j)
+    }
+
+  content(
+    (x + cell-width / 2, array-bottom - 0.25),
+    text(size: 10pt, fill: panel-text, "[" +array-label + "]"),
+    )
+  }
+
+  // -----------------------------
+  // Resources
+  // -----------------------------
+  let resources = (
+    (0.5, -3 * cell-height, "Resource A", "Occupation Table"),
+    (-3.0, -7.0 * cell-height, "Resource B", "RNG"),
+  )
+
+  for ((top, bottom, title, subtitle)) in resources {
+    draw-resource-panel(resource-x, top, bottom, title, subtitle)
+  }
 })
 
 
-== Fletcher Animation
-
-Fletcher Animation in Touying:
-
-#fletcher-diagram(
-  node-stroke: .1em,
-  node-fill: gradient.radial(blue.lighten(80%), blue, center: (30%, 20%), radius: 80%),
-  spacing: 4em,
-  edge((-1, 0), "r", "-|>", `open(path)`, label-pos: 0, label-side: center),
-  node((0, 0), `reading`, radius: 2em),
-  edge((0, 0), (0, 0), `read()`, "--|>", bend: 130deg),
-  pause,
-  edge(`read()`, "-|>"),
-  node((1, 0), `eof`, radius: 2em),
-  pause,
-  edge(`close()`, "-|>"),
-  node((2, 0), `closed`, radius: 2em, extrude: (-2.5, 0)),
-  edge((0, 0), (2, 0), `close()`, "-|>", bend: -40deg),
-)
 
 
-= Theorems
-
-== Prime numbers
-
-#definition[
-  A natural number is called a #highlight[_prime number_] if it is greater
-  than 1 and cannot be written as the product of two smaller natural numbers.
-]
-#example[
-  The numbers $2$, $3$, and $17$ are prime.
-  @cor_largest_prime shows that this list is not exhaustive!
-]
-
-#theorem(title: "Euclid")[
-  There are infinitely many primes.
-]
-#pagebreak(weak: true)
-#proof[
-  Suppose to the contrary that $p_1, p_2, dots, p_n$ is a finite enumeration
-  of all primes. Set $P = p_1 p_2 dots p_n$. Since $P + 1$ is not in our list,
-  it cannot be prime. Thus, some prime factor $p_j$ divides $P + 1$. Since
-  $p_j$ also divides $P$, it must divide the difference $(P + 1) - P = 1$, a
-  contradiction.
-]
-
-#corollary[
-  There is no largest prime number.
-] <cor_largest_prime>
-#corollary[
-  There are infinitely many composite numbers.
-]
-
-#theorem[
-  There are arbitrarily long stretches of composite numbers.
-]
-
-#proof[
-  For any $n > 2$, consider $
-    n! + 2, quad n! + 3, quad ..., quad n! + n
-  $
-]
-
-
-= Others
-
-== Side-by-side
-
-#slide(composer: (1fr, 1fr))[
-  First column.
-][
-  Second column.
-]
-
-
-== Multiple Pages
-
-#lorem(200)
 
 
 #show: appendix
@@ -382,4 +658,3 @@ Fletcher Animation in Touying:
 == Appendix
 
 #bibliography("../Econ.bib")
-Please pay attention to the current slide number.
