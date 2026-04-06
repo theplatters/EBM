@@ -136,6 +136,9 @@ begin
 	
 end
 
+# ╔═╡ f5d76129-5bd3-4493-a9eb-27eac59f17f4
+save("../plots/sweep.png",Traffic.plot_sweeps(sweep))
+
 # ╔═╡ Cell order:
 # ╠═e214077c-71e6-469d-abdc-0cf63260450d
 # ╠═7a45ec5c-eae6-4f8f-b079-f78b48e8f31c
@@ -159,3 +162,4 @@ end
 # ╠═2bc614f0-65c4-40cc-8ac6-32061d97ba00
 # ╠═9fcad449-a5b2-4bf1-9b2a-1aa44a6587d9
 # ╠═7feeff36-fc1d-4928-b59a-32d29b536263
+# ╠═f5d76129-5bd3-4493-a9eb-27eac59f17f4
