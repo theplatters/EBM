@@ -42,34 +42,43 @@
 
 #title-slide()
 
-== Outline <touying:hidden>
-
-#components.adaptive-columns(outline(title: none, indent: 1em))
 
 = Cars driving in circles 
 
 == The original model
 
 - Influential paper by #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") #pause
-- #image("assets/roundabout.jpg", height: 70%)
+#align(center)[
+
+#image("assets/roundabout.jpg", height: 70%)
+]
 == Overview
-- Cars drive sequentially either clockwise or counterclockwise on a $100 times 2$ ring and decide in each step, whether to turn take the left or right lane based on the decision formula $ "LR"^n = w_s  S_s^n (2 s^n - 1) +  
-        w_o  S_o^n  (2 o^n - 1) + 
-        w_a  S_a^n  (c_r^n - c_l^n) + 
-        w_h S_h^n h^n. $ where $s, o$ and $c_r$/$c_l$ are determined by the cars ahead of car $n$ and $h^n$ is the habit of the driver.
--  Driving on one lane shifts their habit towards that lane based on the update formula
-  $ h^n = h^n_"prev" + "lane" / (K + t) $
+- Cars move sequentially, either clockwise or counterclockwise, on a $100 times 2$ ring.
+- In each step, a car chooses the left or right lane according to the decision formula
+  $ "LR"^n = s^n + o^n + c^n + h^n $.
+- Here, $s^n$, $o^n$, and $c^n$ depend on the cars ahead of car $n$, while $h^n$ represents the driver's habit.
+- Driving on one lane shifts habit toward that lane:
+  $ h^n = h^n_"prev" + "lane" / (K + t^n) $.
+
+
+= Main results of Hodgson & Knudsen
+
+- *Habit is crucial for the emergence of convention.*
+- Repeated lane choices gradually become ingrained, making left/right coordination more stable.
+- Agents do not coordinate only because of immediate incentives; they also coordinate because past behavior shapes current disposition.
+- Habit therefore strengthens and stabilizes conventions beyond what purely reactive decision-making can achieve.
+- The paper’s broader claim is that institutions persist partly because they become internalized as habits.
 
 == The real world
 
 #speaker-note[
   + Ask why abs enforce sequential logic that is and that we have to go into more detail
 ]
-- Real-world agents (especially cars) operate in parallel.
-- Why did #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") choose a sequential model? #pause 
-  - Because it is simple?
-  - $arrow.dashed$ In the classic ABM framework the sequential approach is the most natural approach. #pause
-  - But why does the sequential approach lend itself so well for these models?
+- Real-world agents, especially drivers, act in parallel.
+- So why was the original model implemented sequentially?
+  - Sequential updating is simple.
+  - It is the most natural update scheme in many traditional ABM frameworks.
+  - But this also reflects the underlying software architecture.
 = ABM layouts
 
 == Traditional ABM layout
@@ -133,7 +142,7 @@
 ]
 #speaker-note[
   + Agents have step functions 
-  + these step functions run sequentialy
+  + these step functions run sequentially 
 ]
 
 == What if?
@@ -198,18 +207,34 @@
 
 = ECS (Entity Component System)!
 
+
 == The history of ECS
 
-- The origins of ECS reach back to 1959 where Ivan Sutherland pioneered it in a drawing program,one of the first graphical user interfaces  @sutherlandSketchpadManmachineGraphical2003. 
-- Now ECS is primarily used in game development. (e.g Bevy Engine, Unity Dots, ...)
-  #align(center)[
+#grid(
+  columns: (1fr, auto),
+  column-gutter: 1.2em,
 
- #image("assets/sketchpad.png", height: 39%)
+  [
+  - The origins of ECS reach back to 1959, when Ivan Sutherland pioneered a similar idea in a drawing program, one of the first graphical user interfaces @sutherlandSketchpadManmachineGraphical2003.
+  - Today, ECS is primarily used in game development, for example in the Bevy engine and Unity DOTS.
+  - While there is a paper on using ECS for ABMs, it remains a largely unknown programming paradigm in this area @casalsHECATEECSbasedFramework2025.
+  ],
+
+  [
+    #image("assets/sketchpad.png", width: 180pt)
   ]
+)
+
+
 == A short introduction
 
-- ECS is a way to separate data from functionality
-- 
+
+- ECS stands for *Entity–Component–System*. It is a programming pattern that separates data from behavior.
+- *Entities* are unique identifiers. By themselves they do not contain logic or meaning; they simply represent individual objects in the simulation.
+- *Components* are small data containers attached to entities. Each component stores one specific aspect of state, such as position, direction, age, or velocity.
+- An entity is defined by the set of components it has. For example, a car entity might have components for position, direction, habitus, and step count.
+- *Systems* implement the behavior of the model. They query all entities that have a required set of components and then update those components according to the model rules.
+- This means that data and functionality are kept separate: components hold data, while systems contain the logic that acts on that data.
 #pagebreak(weak: true)
 
 
@@ -495,7 +520,6 @@
 )
 
 == Which strategy works best
-
 #figure()[
   #image("../../plots/mean_age.png", width: 75%)
 ]
@@ -504,13 +528,48 @@
   #image("../../plots/habitus.png", width: 75%)
 ]
 
+= Possible benefits and drawbacks of using ECS for ABMs
+
+== Benefits
+- More natural support for parallel updates, both conceptually and computationally
+- Potential performance benefits @JuliaDynamicsABMFrameworksComparison2026
+- Composition over inheritance
+  - Especially useful for heterogeneous agents
+- Clear support for modularity and separation of concerns
+- Many ECS frameworks support explicit relationships between entities
+- Encourages a more systemic rather than purely individual-centered modeling perspective
+
+== Drawbacks
+
+- Less intuitive than object-oriented programming for many modelers
+- Code can become more verbose and structurally complex
+- Very limited established literature in the ABM context
 
 
+== Conclusion
 
+- ECS provides a natural way to model simultaneous interaction.
+- Reimplementing sequential ABMs in ECS reveals hidden assumptions about prediction and update order.
+- In the traffic model, prediction strategy matters greatly for the resulting dynamics.
+- ECS is promising for ABMs, but still underexplored both conceptually and methodologically.
 #show: appendix
 
 = Appendix
 
-== Appendix
+
+
+== Stay ratio
+
+#figure(caption: [Stay ratio =  $(hash "lane switches" ) / ( hash "total cars"$) ])[
+  #image("../../plots/stay_ratio.png")
+]
+
+== No habit?
+#figure(caption: "Different strategies when habit is not weighed in in LR calculation")[
+  #image("../../plots/no_habit.png")
+]
+
+
+== Bibliography 
 
 #bibliography("../Econ.bib")
