@@ -43,7 +43,6 @@ end
 
     @inbounds for d in 0:lookahead
         y = ahead_y(pos.y, dir, d, h)
-
         for x in 1:2
             for (dir_other, e_other, occ_weight) in occ[x, y]
                 e_other == e && continue
@@ -77,7 +76,7 @@ end
 function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
 
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
@@ -110,7 +109,7 @@ end
 function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -130,7 +129,7 @@ end
 function rebuild_predicted_occupancy!(world, ::NaiveStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -148,7 +147,7 @@ end
 function rebuild_predicted_occupancy!(world, ::UnsureStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -166,7 +165,7 @@ end
 function rebuild_predicted_occupancy!(world, ::SwitchStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -184,7 +183,7 @@ end
 function rebuild_predicted_occupancy!(world, ::RandomStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, [])
+    empty!.(grid)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
