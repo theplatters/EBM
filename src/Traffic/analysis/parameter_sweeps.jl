@@ -1,5 +1,7 @@
 using ProgressMeter
 
+using Agents
+
 struct SweepResult
     weights::Weights
     logger::MeanLogger
@@ -38,4 +40,28 @@ function sweep_weights(; resolution = 5, depth = 20, strategy::T) where {T <: Oc
     return results
 end
 
+
+struct ABM end
+
+function sweep_weights(::ABM; resolution = 5, depth = 20)
+    # Generate all 4-tuples from the simplex (sum == 1)
+    combos = simplex_grid(resolution)
+    results = Vector{Any}()
+    lk = ReentrantLock()
+
+    p = Progress(length(combos); showspeed = true)
+    Threads.@threads for (ws, wo, wa, wh) in combos
+        weights = Weights(wₛ = ws, wₒ = wo, wₐ = wa, wₕ = wh)
+        m = [SequentialModel.init_model(ModelParams(), weights) for i in 1:depth]
+
+        result = Agents.ensemblerun!(m, 100, adata = [:age, :lr, :habitus])
+        lock(lk) do
+            push!(results, result)
+            next!(p)
+        end
+    end
+    finish!(p)
+
+    return results
+end
 MeanLogger(sweep_res::Vector{SweepResult}) = MeanLogger(map(x -> x.logger, sweep_res))
