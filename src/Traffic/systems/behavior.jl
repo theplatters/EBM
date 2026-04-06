@@ -16,7 +16,7 @@ function calculate_lr!(world)
             )
 
             s_val = weights.wₛ * s[i].val * (2 * SL - 1)
-            o_val = weights.wₒ * o[i].val * (2 * OL - 1)
+            o_val = -weights.wₒ * o[i].val * (2 * OL - 1)
             avoidance_val = weights.wₐ * a[i].val * (CR - CL)
             habit_strength = weights.wₕ * hg[i].val * ha[i].val
 
@@ -41,7 +41,7 @@ end
     CL = 0
     CR = 0
 
-    @inbounds for d in 1:lookahead
+    @inbounds for d in 0:lookahead
         y = ahead_y(pos.y, dir, d, h)
 
         for x in 1:2

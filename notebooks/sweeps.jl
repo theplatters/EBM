@@ -24,7 +24,7 @@ Revise.retry()
 
 # ╔═╡ 79e6b7ee-baf0-4d37-b0ec-3e830543b925
 # ╠═╡ show_logs = false
-sweep = Traffic.run_all()
+sweep = Traffic.run_all(resolution = 10, depth=100)
 
 # ╔═╡ dc041d84-e0b0-483b-9e4f-260901d500ae
 sweep_logger = Dict(k => Traffic.MeanLogger(v) for (k,v) in sweep)
@@ -107,8 +107,8 @@ begin
 end
 
 # ╔═╡ b7e47d12-e79a-4869-bd8c-4298aeeeae81
-only_hab = Dict(k => first(filter(v) do val
-	val.weights.wₕ == 1.0
+only_hab = Dict(k => Traffic.MeanLogger(filter(v) do val
+	val.weights.wₕ >= 0.7
 end) for (k,v) in sweep)
 
 # ╔═╡ 06e73989-be81-4b2b-a03d-e466f9ecdf82
@@ -116,7 +116,7 @@ begin
 	f4 = Figure()
 	ax4 = Axis(f4[1,1])
 	for (strategy, vals) in only_hab
-        lines!(ax4, vals.logger.mean_age, label = string(typeof(strategy)))
+        lines!(ax4, vals.mean_age, label = string(typeof(strategy)))
     end
 	Legend(f4[1, 2], ax4)
 
