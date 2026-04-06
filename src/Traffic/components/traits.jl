@@ -32,9 +32,9 @@ struct RandomStrategy <: OccupancyStrategy end
 struct SwitchStrategy <: OccupancyStrategy end
 
 struct PredictedOccupancy
-    grid::Matrix{Union{Nothing, Tuple{Direction, Entity, Float64}}}
+    grid::Matrix{Vector{Tuple{Direction, Entity, Float64}}}
 end
 
 function PredictedOccupancy(ring::Ring)
-    return PredictedOccupancy(fill(nothing, Int(ring.width), Int(ring.height)))
+    return PredictedOccupancy(fill([], Int(ring.width), Int(ring.height)))
 end

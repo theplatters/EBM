@@ -45,29 +45,30 @@ end
         y = ahead_y(pos.y, dir, d, h)
 
         for x in 1:2
-            occ[x, y] != nothing || continue
+            for (dir_other, e_other, occ_weight) in occ[x, y]
 
-            dir_other, e_other, occ_weight = occ[x, y]
+                e_other == e && continue
+                left_rel = is_left_relative(x, dir)
 
-            e_other == e && continue
-            left_rel = is_left_relative(x, dir)
-
-            if dir_other == dir
-                same_total += occ_weight
-                same_left += occ_weight * left_rel
-            else
-                opp_total += occ_weight
-                opp_left += occ_weight * left_rel
-            end
-
-            if d ≤ 2
-                if left_rel
-                    CL += occ_weight
+                if dir_other == dir
+                    same_total += occ_weight
+                    same_left += occ_weight * left_rel
                 else
-                    CR += occ_weight
+                    opp_total += occ_weight
+                    opp_left += occ_weight * left_rel
+                end
+
+                if d ≤ 2
+                    if left_rel
+                        CL += occ_weight
+                    else
+                        CR += occ_weight
+                    end
                 end
             end
         end
+
+
     end
 
     SL = same_total == 0 ? 0.5 : same_left / same_total
@@ -97,11 +98,11 @@ function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
             prefer_lane1 = (dir[i] == Clockwise  && h > 0) || (dir[i] == Counterclockwise && h < 0)
 
             if prefer_lane1
-                grid[1, pnext.y] = (dir[i], e[i], w)
-                grid[2, pnext.y] = (dir[i], e[i], 1 - w)
+                push!(grid[1, pnext.y], (dir[i], e[i], w))
+                push!(grid[2, pnext.y], (dir[i], e[i], 1 - w))
             else
-                grid[2, pnext.y] = (dir[i], e[i], w)
-                grid[1, pnext.y] = (dir[i], e[i], 1 - w)
+                gpush!(rid[2, pnext.y], (dir[i], e[i], w))
+                push!(grid[1, pnext.y], (dir[i], e[i], 1 - w))
             end
         end
     end
@@ -112,7 +113,7 @@ end
 function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -121,8 +122,8 @@ function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            grid[pnext.x, pnext.y] = (dir[i], e[i], mean_habitus.abs)
-            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1 - mean_habitus.abs)
+            push!(grid[pnext.x, pnext.y], (dir[i], e[i], mean_habitus.abs))
+            push!(grid[pnext.x == 1 ? 2 : 1, pnext.y], (dir[i], e[i], 1 - mean_habitus.abs))
         end
     end
 
@@ -132,7 +133,7 @@ end
 function rebuild_predicted_occupancy!(world, ::NaiveStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -141,7 +142,7 @@ function rebuild_predicted_occupancy!(world, ::NaiveStrategy)
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            grid[pnext.x, pnext.y] = (dir[i], e[i], 1.0)
+            push!(grid[pnext.x, pnext.y], (dir[i], e[i], 1.0))
         end
     end
 
@@ -151,7 +152,7 @@ end
 function rebuild_predicted_occupancy!(world, ::UnsureStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -159,8 +160,8 @@ function rebuild_predicted_occupancy!(world, ::UnsureStrategy)
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            grid[1, pnext.y] = (dir[i], e[i], 0.5)
-            grid[2, pnext.y] = (dir[i], e[i], 0.5)
+            push!(grid[1, pnext.y], (dir[i], e[i], 0.5))
+            push!(grid[2, pnext.y], (dir[i], e[i], 0.5))
         end
     end
 
@@ -169,7 +170,7 @@ end
 function rebuild_predicted_occupancy!(world, ::SwitchStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
@@ -177,7 +178,7 @@ function rebuild_predicted_occupancy!(world, ::SwitchStrategy)
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            grid[pnext.x == 1 ? 2 : 1, pnext.y] = (dir[i], e[i], 1.0)
+            push!(grid[pnext.x == 1 ? 2 : 1, pnext.y], (dir[i], e[i], 1.0))
         end
     end
 
@@ -196,8 +197,8 @@ function rebuild_predicted_occupancy!(world, ::RandomStrategy)
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
             r = rand(rng)
-            grid[1, pnext.y] = (dir[i], e[i], r)
-            grid[2, pnext.y] = (dir[i], e[i], 1 - r)
+            push!(grid[1, pnext.y], (dir[i], e[i], r))
+            push!(grid[2, pnext.y], (dir[i], e[i], 1 - r))
         end
     end
 
