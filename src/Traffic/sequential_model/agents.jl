@@ -48,6 +48,81 @@ end
 end
 
 
+function next_agents_in_direction(agent, model, lookahead)
+    found = Tuple{typeof(agent), Int}[]
+    x, y = agent.pos
+    _, h = spacesize(model)
+
+    dy = agent.direction == Clockwise ? 1 : -1
+    yy = y
+
+    for d in 1:lookahead
+        yy = mod1(yy + dy, h)
+        for lane in 1:2
+            for other in agents_in_position((lane, yy), model)
+                other.id == agent.id && continue
+                push!(found, (other, d))
+            end
+        end
+    end
+
+    return found
+end
+
+
+is_left_relative(x::Int, dir::Direction) =
+    (dir == Clockwise) ? (x == 1) : (x == 2)
+
+
+function forward_distance(agent, other, model)
+    _, h = spacesize(model)
+    y0 = agent.pos[2]
+    y1 = other.pos[2]
+
+    if agent.direction == Clockwise
+        return mod1(y1 - y0, h)
+    else
+        return mod1(y0 - y1, h)
+    end
+end
+
+
+function compute_observations(agent, model)
+    same_total = 0
+    same_left = 0
+    opp_total = 0
+    opp_left = 0
+
+    CL = 0
+    CR = 0
+
+    for (other, d) in next_agents_in_direction(agent, model, model.params.lookahead)
+        left_rel = is_left_relative(other.pos[1], agent.direction)
+
+        if other.direction == agent.direction
+            same_total += 1
+            same_left += left_rel ? 1 : 0
+        else
+            opp_total += 1
+            opp_left += left_rel ? 1 : 0
+        end
+
+        if d == 1
+            if left_rel
+                CL += 1
+            else
+                CR += 1
+            end
+        end
+    end
+
+    SL = same_total == 0 ? 0.5 : same_left / same_total
+    OL = opp_total == 0 ? 0.5 : opp_left / opp_total
+
+    return SL, OL, CL, CR
+end
+
+
 function calculate_lr!(agent, model)
 
     (;
@@ -63,7 +138,7 @@ function calculate_lr!(agent, model)
     )
 
     s_val = weights.wₛ * s_sensitvity * (2 * SL - 1)
-    o_val = weights.wₒ * o_sensitvity * (2 * OL - 1)
+    o_val = -weights.wₒ * o_sensitvity * (2 * OL - 1)
     avoidance_val = weights.wₐ * avoidance * (CR - CL)
     habit_strength = weights.wₕ * habitgene * agent.habitus
 

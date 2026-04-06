@@ -143,7 +143,7 @@ struct MeanLogger <: AbstractLogger
     distribution_S::Vector{Vector{Float64}}
     distribution_O::Vector{Vector{Float64}}
     distribution_A::Vector{Vector{Float64}}
-    mean_stay_ratio::Vector{Float64}
+    stay_ratio::Vector{Float64}
 end
 
 
