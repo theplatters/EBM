@@ -46,7 +46,6 @@ end
 
         for x in 1:2
             for (dir_other, e_other, occ_weight) in occ[x, y]
-
                 e_other == e && continue
                 left_rel = is_left_relative(x, dir)
 
@@ -67,8 +66,6 @@ end
                 end
             end
         end
-
-
     end
 
     SL = same_total == 0 ? 0.5 : same_left / same_total
@@ -80,7 +77,7 @@ end
 function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
 
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
@@ -188,7 +185,7 @@ end
 function rebuild_predicted_occupancy!(world, ::RandomStrategy)
     occ = Ark.get_resource(world, PredictedOccupancy)
     grid = occ.grid
-    fill!(grid, nothing)
+    fill!(grid, [])
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
