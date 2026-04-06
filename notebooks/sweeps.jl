@@ -57,7 +57,7 @@ begin
     end
 	lines!(ax, abm_mean_age.age_mean, label = "ABM", linestyle=:dot)
 
-	Legend(f[2, 1], ax)
+	Legend(f[1, 2], ax)
 
 	save("../plots/mean_age.png",f)
 f
