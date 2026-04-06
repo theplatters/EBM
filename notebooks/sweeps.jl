@@ -87,7 +87,7 @@ end
 
 # ╔═╡ b7e47d12-e79a-4869-bd8c-4298aeeeae81
 only_hab = Dict(k => Traffic.MeanLogger(filter(v) do val
-	val.weights.wₕ >= 0.8
+	val.weights.wₕ == 0.0
 end) for (k,v) in sweep)
 
 # ╔═╡ 6b55052a-8de0-4e43-bc6c-50aaaf0b5297
@@ -102,7 +102,7 @@ begin
     end
 	Legend(f4[1, 2], ax4)
 
-	f4
+	save("../plots/no_habit.png",f4)
 	
 end
 
@@ -132,6 +132,8 @@ begin
     end
 	Legend(f5[1, 2], ax5)
 
+	save("../plots/stay_ratio.png",f5)
+
 	f5
 	
 end
@@ -156,7 +158,7 @@ save("../plots/sweep.png",Traffic.plot_sweeps(sweep))
 # ╠═c6507f4e-e1c1-4498-b91f-1a805c641175
 # ╠═53495d67-9325-4410-929d-30123e0f4f31
 # ╟─a4cbd9d1-81a6-4d68-86a9-623da00ca7ba
-# ╟─b7e47d12-e79a-4869-bd8c-4298aeeeae81
+# ╠═b7e47d12-e79a-4869-bd8c-4298aeeeae81
 # ╟─6b55052a-8de0-4e43-bc6c-50aaaf0b5297
 # ╠═06e73989-be81-4b2b-a03d-e466f9ecdf82
 # ╠═2bc614f0-65c4-40cc-8ac6-32061d97ba00
