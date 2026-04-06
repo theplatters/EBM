@@ -94,11 +94,11 @@ function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
             prefer_lane1 = (dir[i] == Clockwise  && h > 0) || (dir[i] == Counterclockwise && h < 0)
 
             if prefer_lane1
-                push!(grid[1, pnext.y], (dir[i], e[i], w))
-                push!(grid[2, pnext.y], (dir[i], e[i], 1 - w))
+                push!(grid[1, pnext.y], (dir[i], e[i], 0.5 + w / 2))
+                push!(grid[2, pnext.y], (dir[i], e[i], 0.5 - w / 2))
             else
-                push!(grid[2, pnext.y], (dir[i], e[i], w))
-                push!(grid[1, pnext.y], (dir[i], e[i], 1 - w))
+                push!(grid[2, pnext.y], (dir[i], e[i], 0.5 + w / 2))
+                push!(grid[1, pnext.y], (dir[i], e[i], 0.5 - w / 2))
             end
         end
     end
@@ -118,8 +118,8 @@ function rebuild_predicted_occupancy!(world, ::MeanHabitusStrategy)
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
             pnext = predict_position(pos[i], dir[i], ring, params, rng)
-            push!(grid[pnext.x, pnext.y], (dir[i], e[i], mean_habitus.abs))
-            push!(grid[pnext.x == 1 ? 2 : 1, pnext.y], (dir[i], e[i], 1 - mean_habitus.abs))
+            push!(grid[pnext.x, pnext.y], (dir[i], e[i], 0.5 + mean_habitus.abs / 2))
+            push!(grid[pnext.x == 1 ? 2 : 1, pnext.y], (dir[i], e[i], 0.5 - mean_habitus.abs / 2))
         end
     end
 
