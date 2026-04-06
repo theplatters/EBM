@@ -17,7 +17,6 @@ function simplex_grid(resolution)
 end
 
 function sweep_weights(; resolution = 5, depth = 20, strategy::T) where {T <: OccupancyStrategy}
-    vals = range(0.0, 1.0; length = resolution)
 
     # Generate all 4-tuples from the simplex (sum == 1)
     combos = simplex_grid(resolution)

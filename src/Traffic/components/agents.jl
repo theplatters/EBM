@@ -13,5 +13,6 @@ end
 
 ahead_y(y::Int, dir::Direction, d::Int, h::Int) =
     mod1(y + d * Int(dir), h)
+
 is_left_relative(x::Int, dir::Direction) =
     (dir == Clockwise) ? (x == 1) : (x == 2)

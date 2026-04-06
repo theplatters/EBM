@@ -35,7 +35,7 @@ function spawn_init_entities!(world)
     directions = shuffle(rng, repeat([Clockwise, Counterclockwise], amount ÷ 2))
     draws = rand(rng, Normal(1.0, params.δ), amount, 4)
 
-    return @inbounds for i in 1:amount
+    @inbounds for i in 1:amount
         spawn_car!(
             world,
             positions[i],
@@ -47,6 +47,7 @@ function spawn_init_entities!(world)
             Habitus(0.0),
         )
     end
+    return nothing
 end
 
 
@@ -83,5 +84,5 @@ function spawn_new_entities!(world, directions)
         delete!(unoccupied_positions, position)
     end
 
-    return
+    return nothing
 end

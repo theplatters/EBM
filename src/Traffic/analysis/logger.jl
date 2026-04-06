@@ -11,6 +11,7 @@ mutable struct Logger <: AbstractLogger
     distribution_S::Vector{Vector{Float64}}
     distribution_O::Vector{Vector{Float64}}
     distribution_A::Vector{Vector{Float64}}
+    lr::Vector{Vector{Float64}}
 end
 
 Logger() = Logger(
@@ -24,7 +25,17 @@ Logger() = Logger(
     Vector{Vector{Float64}}(),
     Vector{Vector{Float64}}(),
     Vector{Vector{Float64}}(),
+    Vector{Vector{Float64}}(),
 )
+
+function log_lr!(world, logger)
+
+    for (_, lr) in Query(world, (LR,))
+        push!(logger.lr, collect(lr.val))
+    end
+
+    return
+end
 
 function log_habitus!(world, logger)
 
@@ -98,6 +109,7 @@ function logger!(world)
     log_mean_age!(world, logger)
     log_positions!(world, logger)
     log_distributions!(world, logger)
+    log_lr!(world, logger)
 
     return
 end

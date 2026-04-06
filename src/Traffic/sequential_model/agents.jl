@@ -102,11 +102,14 @@ function move!(agent, model)
 end
 
 
-lane_to_LR(laneIndex::Int) = laneIndex == 1 ? 1.0 : -1.0
+@inline relative_lane_sign(x::Int, dir::Direction) =
+    dir == Clockwise ?
+    (x == 1 ? 1.0 : -1.0) :
+    (x == 2 ? 1.0 : -1.0)
 
 function update_habitus!(agent, model)
     agent.habitus = clamp(
-        agent.habitus + lane_to_LR(agent.pos[1]) / (model.params.K + agent.age),
+        agent.habitus + relative_lane_sign(agent.pos[1], agent.direction) / (model.params.K + agent.age),
         -1.0,
         1.0,
     )
@@ -149,4 +152,6 @@ function init_model(params, weights)
 end
 
 
-init_model(ModelParams(), Weights())
+m = init_model(ModelParams(), Weights())
+
+run_model(m, 20)
