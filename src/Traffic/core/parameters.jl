@@ -2,7 +2,7 @@ Base.@kwdef struct Weights
     wₛ::Float64 = 0.5
     wₒ::Float64 = 0.5
     wₐ::Float64 = 0.5
-    wₕ::Float64 = 1.0
+    wₕ::Float64 = 0.0
 end
 
 Base.@kwdef struct ModelParams

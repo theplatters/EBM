@@ -12,6 +12,7 @@ mutable struct Logger <: AbstractLogger
     distribution_O::Vector{Vector{Float64}}
     distribution_A::Vector{Vector{Float64}}
     lr::Vector{Vector{Float64}}
+    stay_ratio::Vector{Float64}
 end
 
 Logger() = Logger(
@@ -26,6 +27,7 @@ Logger() = Logger(
     Vector{Vector{Float64}}(),
     Vector{Vector{Float64}}(),
     Vector{Vector{Float64}}(),
+    Vector{Float64}(),
 )
 
 function log_lr!(world, logger)
@@ -101,6 +103,20 @@ function log_distributions!(world, logger)
     return nothing
 end
 
+function log_stays!(world, logger)
+
+    stays = 0
+    total = 0
+    for (e, pos, prev) in Query(world, (Position, PrevPosition))
+        @inbounds for i in eachindex(e)
+            stays += (pos[i].x == Position(prev[i]).x)
+            total += 1
+        end
+    end
+    push!(logger.stay_ratio, stays / total)
+    return nothing
+end
+
 function logger!(world)
     logger = Ark.get_resource(world, Logger)
 
@@ -110,6 +126,7 @@ function logger!(world)
     log_positions!(world, logger)
     log_distributions!(world, logger)
     log_lr!(world, logger)
+    log_stays!(world, logger)
 
     return
 end
@@ -126,6 +143,7 @@ struct MeanLogger <: AbstractLogger
     distribution_S::Vector{Vector{Float64}}
     distribution_O::Vector{Vector{Float64}}
     distribution_A::Vector{Vector{Float64}}
+    mean_stay_ratio::Vector{Float64}
 end
 
 
@@ -141,6 +159,7 @@ function MeanLogger(loggers::AbstractArray{T}) where {T <: AbstractLogger}
     mean_habitus = zeros(Float64, L)
     mean_abs_habitus = zeros(Float64, L)
     mean_age = zeros(Float64, L)
+    mean_stay_ratio = zeros(Float64, L)
 
     distribution_S = Vector{Vector{Float64}}(undef, L)
     distribution_O = Vector{Vector{Float64}}(undef, L)
@@ -160,6 +179,7 @@ function MeanLogger(loggers::AbstractArray{T}) where {T <: AbstractLogger}
             mean_habitus[t] += logger.mean_habitus[t]
             mean_abs_habitus[t] += logger.mean_abs_habitus[t]
             mean_age[t] += logger.mean_age[t]
+            mean_stay_ratio[t] += logger.stay_ratio[t]
         end
 
         left[t] = (round(Int, lx / n), round(Int, ly / n))
@@ -169,6 +189,7 @@ function MeanLogger(loggers::AbstractArray{T}) where {T <: AbstractLogger}
         mean_habitus[t] /= n
         mean_abs_habitus[t] /= n
         mean_age[t] /= n
+        mean_stay_ratio[t] /= n
 
         distribution_S[t] = mean(reduce(hcat, [l.distribution_S[t] for l in loggers]), dims = 2)[:]
         distribution_O[t] = mean(reduce(hcat, [l.distribution_O[t] for l in loggers]), dims = 2)[:]
@@ -187,7 +208,8 @@ function MeanLogger(loggers::AbstractArray{T}) where {T <: AbstractLogger}
         mean_age,
         distribution_S,
         distribution_O,
-        distribution_A
+        distribution_A,
+        mean_stay_ratio
     )
 end
 

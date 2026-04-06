@@ -13,6 +13,7 @@ include("components/agents.jl")
 include("components/spatial.jl")
 include("components/traits.jl")
 
+
 include("core/parameters.jl")
 include("simulation/setup.jl")
 include("core/resources.jl")
@@ -33,6 +34,8 @@ include("analysis/parameter_sweeps.jl")
 include("analysis/plotting.jl")
 include("analysis/regressions.jl")
 include("analysis/runner.jl")
+
+include("sequential_model/agents.jl")
 
 function main(args)
     world = setup_world(args)
