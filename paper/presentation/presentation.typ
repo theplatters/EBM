@@ -50,12 +50,15 @@
 
 == The original model
 
-- Cars drive sequentially on a $100 times 2$ torus and decide in each step, whether to turn take the left or right lane based on the decision formula
-
-$ "LR" = w_s  S_s (2 s - 1) +  
-        w_o  S_o  (2 o - 1) + 
-        w_a  S_a  (c_r - c_l) + 
-        w_h S_h h. $
+- Influential paper by #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") #pause
+- #image("assets/roundabout.jpg", height: 70%)
+== Overview
+- Cars drive sequentially either clockwise or counterclockwise on a $100 times 2$ ring and decide in each step, whether to turn take the left or right lane based on the decision formula $ "LR"^n = w_s  S_s^n (2 s^n - 1) +  
+        w_o  S_o^n  (2 o^n - 1) + 
+        w_a  S_a^n  (c_r^n - c_l^n) + 
+        w_h S_h^n h^n. $ where $s, o$ and $c_r$/$c_l$ are determined by the cars ahead of car $n$ and $h^n$ is the habit of the driver.
+-  Driving on one lane shifts their habit towards that lane based on the update formula
+  $ h^n = h^n_"prev" + "lane" / (K + t) $
 
 == The real world
 
@@ -64,12 +67,14 @@ $ "LR" = w_s  S_s (2 s - 1) +
 ]
 - Real-world agents (especially cars) operate in parallel.
 - Why did #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") choose a sequential model? #pause 
-  - For sure because the model is not intended to model real traffic, but to show an example.
-  - But also in the classic ABM framework the sequential approach is the most natural approach. #pause
+  - Because it is simple?
+  - $arrow.dashed$ In the classic ABM framework the sequential approach is the most natural approach. #pause
   - But why does the sequential approach lend itself so well for these models?
 = ABM layouts
 
 == Traditional ABM layout
+#align(center)[
+
 #cetz-canvas(length: 1.7cm, {
   import cetz.draw: *
 
@@ -124,6 +129,8 @@ $ "LR" = w_s  S_s (2 s - 1) +
     bezier((1.0, -5.0), (3.5 + 1.5, 0.3), (5.5, -6.5), (3.-3 + 1.5, 1.5))
     bezier((5.0, -5.0), (5.5 + 1.5, 0.3), (11.5, -6.5), (5.-3 + 1.5, 1.5))
 })
+
+]
 #speaker-note[
   + Agents have step functions 
   + these step functions run sequentialy
@@ -135,6 +142,7 @@ $ "LR" = w_s  S_s (2 s - 1) +
   + What if we group the data not by agents but by systems
   + Luckily  paradigm exists => ECS
 ]
+#align(center)[
 #cetz-canvas(length: 1.6cm, {
   import cetz.draw: *
   
@@ -185,7 +193,7 @@ $ "LR" = w_s  S_s (2 s - 1) +
   rect((-0.5,-0.3), (12,-1.3), fill: none, stroke: red, radius: 2pt)
   (pause,)
   rect((-0.5,-3.6), (12,-4.5), fill: none, stroke: red, radius: 2pt)
-})
+})]
 
 
 = ECS (Entity Component System)!
@@ -194,36 +202,16 @@ $ "LR" = w_s  S_s (2 s - 1) +
 
 - The origins of ECS reach back to 1959 where Ivan Sutherland pioneered it in a drawing program,one of the first graphical user interfaces  @sutherlandSketchpadManmachineGraphical2003. 
 - Now ECS is primarily used in game development. (e.g Bevy Engine, Unity Dots, ...)
+  #align(center)[
 
+ #image("assets/sketchpad.png", height: 39%)
+  ]
 == A short introduction
 
 - ECS is a way to separate data from functionality
 - 
 #pagebreak(weak: true)
-#table(
-  columns: (auto, auto, auto, auto),
-  inset: 7pt,
-  align: horizon,
-  [*Concept*],
-  [*Description*],
-  [*ABM Equivalent*],
-  [*Role in Simulation*],
 
-  [*Entity*],
-  [Unique object in the world],
-  [Agent],
-  [Represents an individual actor in the simulation],
-
-  [*Component*],
-  [Data attached to an entity],
-  [Agent attributes / state variables],
-  [Stores properties such as position, preferences, or resources],
-
-  [*System*],
-  [Function operating on sets of components],
-  [Part of the agent step function],
-  [Implements simulation rules and updates state],
-)
 
 == Data layout in a classic ABM
 
@@ -440,213 +428,81 @@ $ "LR" = w_s  S_s (2 s - 1) +
 })
 == ECS data layout
 
-#cetz-canvas(length: 1.6cm, {
-  import cetz.draw: *
+#figure()[
+  #image("assets/ECS_Simple_Layout.svg", height: 80%)
+]
 
-  // -----------------------------
-  // Configuration
-  // -----------------------------
-  let entity-labels = ("Entity 1", "Entity 2", "Entity N")
-  let data-labels = ("Position", "LR", "Habitus", "Parameters")
+== ABM in ECS terms
+#table(
+  columns: (auto, auto, auto, auto),
+  inset: 7pt,
+  align: horizon,
+  [*Concept*],
+  [*Description*],
+  [*ABM Equivalent*],
+  [*Role in Simulation*],
 
-  let cell-width = 3.0
-  let cell-height = 0.8
-  let margin = 0.5
-  let data-offset = 0.4
-  let ellipsis-gap = 1.5
+  [*Entity*],
+  [Unique object in the world],
+  [Agent],
+  [Represents an individual actor in the simulation],
 
-  let entity-left = 0.5
-  let entity-right = -(data-labels.len() + 3) * cell-width
+  [*Component*],
+  [Data attached to an entity],
+  [Agent attributes / state variables],
+  [Stores properties such as position, preferences, or resources],
 
-  let data-title-x = 0.5
-  let method-title-x = -3.1
-  let method-box-x = -4.7
+  [*System*],
+  [Function operating on sets of components],
+  [Part of the agent step function],
+  [Implements simulation rules and updates state],
+)
+= Cars 2
 
-  let resource-x = 12.2
+== Reimplementing the model using ECS
 
-  // Array container padding
-  let array-pad-x = 0.35
-  let array-pad-top = 0.55
-  let array-pad-bottom = 0.75
+- The natural way to implement the model in ECS is so that cars move simultaneously.
+- This leads to a problem:
+  - How does a car predict where the other cars are in the next step?
+  - $arrow.dashed$ different prediction strategies.
 
-  // -----------------------------
-  // Styles
-  // -----------------------------
-  let world-fill = green.lighten(95%)
-  let world-stroke = green.lighten(50%)
-  let world-text = green.darken(40%)
+== Prediction strategies
 
-  let panel-fill = blue.lighten(90%)
-  let panel-stroke = blue.lighten(50%)
-  let panel-text = blue.darken(20%)
+#table(
+  columns: (auto, auto),
+  inset: 7pt,
+  align: horizon,
+  [*Strategy*],
+  [*Prediction*],
 
-  let box-fill = white
-  let box-stroke = gray.lighten(50%)
+  [*Naive strategy*],
+  [Other cars just stay on their lane],
 
-  let array-stroke = blue.darken(10%)
-  let array-fill = blue.lighten(96%)
+  [*Switch strategy*],
+  [Other cars switch their lane],
 
-  // -----------------------------
-  // Helpers
-  // -----------------------------
-  let draw-entry-box(x, y, w, label) = {
-    rect(
-      (x + 0.2, y + 0.3),
-      (x + w - 0.2, y - 0.3),
-      fill: box-fill,
-      stroke: box-stroke,
-      radius: 1pt,
-    )
-    content((x + w / 2, y), text(size: 9pt, style: "italic", label))
-  }
+  [*Unsure strategy*],
+  [Both lanes are equally likely],
 
-  let draw-entity-row(y, label) = {
-    rect(
-      (entity-left, y ),
-      (entity-right, y + cell-height),
-      fill: panel-fill,
-      stroke: panel-stroke,
-      radius: 2pt,
-    )
+  [*Per Entity Habitus*],
+  [The car switches lanes based on its habitus],
 
-    content(
-      (0, y + cell-height / 2),
-      text(weight: "bold", size: 12pt, fill: panel-text, label),
-    )
+  [*Mean Absolute Habitus*],
+  [The car is more likely to stay on a lane the higher the mean absolute habitus is],
 
-    content(
-      (data-title-x,y + 0.5),
-      text(weight: "bold", size: 12pt, fill: panel-text, "Data:"),
-    )
+  [*Random strategy*],
+  [The car gets assigned a random probability to switch lane],
+)
 
-    for (i, item) in data-labels.enumerate() {
-      let x = -(i + 1) * cell-width - data-offset
-      draw-entry-box(x, y, cell-width, item)
-    }
+== Which strategy works best
 
-  }
-
-  let draw-resource-panel(x, y-top, y-bottom, title, subtitle) = {
-    rect(
-      (x, y-top),
-      (x + cell-width, y-bottom),
-      fill: panel-fill,
-      stroke: panel-stroke,
-      radius: 2pt,
-    )
-
-    let center-y = (y-top + y-bottom) / 2
-    content(
-      (x + cell-width / 2, center-y + 0.5),
-      text(weight: "bold", size: 12pt, fill: panel-text, title),
-    )
-    content(
-      (x + cell-width / 2, center-y - 0.5),
-      text(weight: "bold", size: 12pt, fill: panel-text, subtitle),
-    )
-  }
-
-  let agent-x(j) = if j == entity-labels.len() - 1 {
-    j * (cell-width + margin) + ellipsis-gap
-  } else {
-    j * (cell-width + margin)
-  }
-
-  // -----------------------------
-  // World background
-  // -----------------------------
-  rect(
-    (-1, 1.5),
-    (16, -6.8),
-    fill: world-fill,
-    stroke: world-stroke,
-    radius: 2pt,
-  )
-  content(
-    (6, -6.2),
-    text(weight: "bold", size: 20pt, fill: world-text, "World"),
-  )
-
-  // -----------------------------
-  // Agents array container
-  // -----------------------------
-  let first-agent-x = agent-x(0)
-  let last-agent-x = agent-x(entity-labels.len() - 1)
-
-  let array-left = first-agent-x - array-pad-x
-  let array-right = last-agent-x + cell-width + array-pad-x
-  let array-top = entity-left + array-pad-top
-  let array-bottom = entity-right - array-pad-bottom
-
-  rect(
-    (array-left, array-top),
-    (array-right, array-bottom),
-    fill: array-fill,
-    stroke: array-stroke,
-    radius: 3pt,
-  )
-
-  content(
-    (array-left + 1.0, array-top - 0.25),
-    text(weight: "bold", size: 13pt, fill: array-stroke, "Agents[]"),
-  )
-
-  // Optional array brackets effect
-  content(
-    (array-left - 0.15, (array-top + array-bottom) / 2),
-    text(size: 28pt, weight: "bold", fill: array-stroke, "["),
-  )
-  content(
-    (array-right + 0.15, (array-top + array-bottom) / 2),
-    text(size: 28pt, weight: "bold", fill: array-stroke, "]"),
-  )
-
-  // -----------------------------
-  // Agents as array entries
-  // -----------------------------
-  for (j, agent) in entity-labels.enumerate() {
-    let x = agent-x(j)
-
-    if j == entity-labels.len() - 1 {
-      let dots-x = x - ellipsis-gap / 2 - margin / 2
-      content(
-        (dots-x, -2.5),
-        text(size: 25pt, weight: "bold", fill: panel-text, [$dots$]),
-      )
-      content(
-        (dots-x, array-bottom - 0.25),
-        text(size: 10pt, fill: panel-text, "…"),
-      )
-    }
-
-    draw-entity-row(x, agent)
-
-    let array-label = if j == 2 {
-      "n -1"
-    } else {
-      str(j)
-    }
-
-  content(
-    (x + cell-width / 2, array-bottom - 0.25),
-    text(size: 10pt, fill: panel-text, "[" +array-label + "]"),
-    )
-  }
-
-  // -----------------------------
-  // Resources
-  // -----------------------------
-  let resources = (
-    (0.5, -3 * cell-height, "Resource A", "Occupation Table"),
-    (-3.0, -7.0 * cell-height, "Resource B", "RNG"),
-  )
-
-  for ((top, bottom, title, subtitle)) in resources {
-    draw-resource-panel(resource-x, top, bottom, title, subtitle)
-  }
-})
-
-
+#figure()[
+  #image("../../plots/mean_age.png", width: 75%)
+]
+== The formation of habit
+#figure()[
+  #image("../../plots/habitus.png", width: 75%)
+]
 
 
 

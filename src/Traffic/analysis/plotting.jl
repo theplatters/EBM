@@ -106,13 +106,15 @@ function animate_densities(logger::AbstractLogger, framerate = 5)
 end
 
 function plot_parallell_coordinates(res::Dict{OccupancyStrategy, Vector{SweepResult}})
-  mapped = Dict( k=> map(v) do el
-        [
-            el.weights.wₛ, el.weights.wₒ, el.weights.wₐ, el.weights.wₕ,
-            mean(el.logger.mean_age),
-        ]
-      end 
-      for (k,v) in res)
+    mapped = Dict(
+        k => map(v) do el
+                [
+                    el.weights.wₛ, el.weights.wₒ, el.weights.wₐ, el.weights.wₕ,
+                    mean(el.logger.mean_age),
+                ]
+        end
+            for (k, v) in res
+    )
 
     output_vals = [row[5] for row in mapped]
     lo, hi = minimum(output_vals), maximum(output_vals)
@@ -160,7 +162,7 @@ function plot_parallell_coordinates(res::Dict{OccupancyStrategy, Vector{SweepRes
     return fig
 end
 
-function plot_parallell_coordinates(res::Vector{SweepResult})
+function plot_parallell_coordinates(res::Vector{SweepResult}; title)
     mapped = map(res) do el
         [
             el.weights.wₛ, el.weights.wₒ, el.weights.wₐ, el.weights.wₕ,
@@ -204,7 +206,7 @@ function plot_parallell_coordinates(res::Vector{SweepResult})
 
     timestamps = 1:length(mapped)
     record(
-        fig, "krass.mkv", timestamps;
+        fig, joinpath("plots", title), timestamps;
         framerate = 10
     ) do t
         step[] = t
@@ -239,7 +241,6 @@ function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
         lines!(ax2, abs_hab, label = string(typeof(strategy)))
         lines!(ax22, hab, label = string(typeof(strategy)))
     end
-    Legend(f[2, 3], ax2)
 
     distribution_mean = Dict(k => (mean.(v.distribution_A), var.(v.distribution_A)) for (k, v) in mean_logger)
     for (strategy, (mean, var)) in distribution_mean
@@ -255,7 +256,6 @@ function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
     for (strategy, (mean, var)) in distribution_mean
         lines!(ax5, mean, label = string(typeof(strategy)))
     end
-    Legend(f[3, 4], ax3)
 
 
     return f
