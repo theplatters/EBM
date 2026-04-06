@@ -18,7 +18,7 @@ function move!(world)
                 go_left = !go_left
             end
 
-            xnew = dir[i] == Clockwise ? (go_left ? 1 : 2) : (go_left ? 2 : 1)
+            xnew = dir[i] == Clockwise ? (go_left ? 2 : 1) : (go_left ? 1 : 2)
 
             pos[i] = Position(xnew, ynew)
             step[i] = Step(step[i].val + 1)
