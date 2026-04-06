@@ -98,7 +98,7 @@ function rebuild_predicted_occupancy!(world, ::PerEntityHabitusStrategy)
                 push!(grid[1, pnext.y], (dir[i], e[i], w))
                 push!(grid[2, pnext.y], (dir[i], e[i], 1 - w))
             else
-                gpush!(rid[2, pnext.y], (dir[i], e[i], w))
+                push!(grid[2, pnext.y], (dir[i], e[i], w))
                 push!(grid[1, pnext.y], (dir[i], e[i], 1 - w))
             end
         end
@@ -134,7 +134,6 @@ function rebuild_predicted_occupancy!(world, ::NaiveStrategy)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
     rng = Ark.get_resource(world, TaskLocalRNG)
-    mean_habitus = Ark.get_resource(world, MeanHabitus)
 
     for (e, pos, dir) in Query(world, (Position, Direction))
         @inbounds for i in eachindex(e)
