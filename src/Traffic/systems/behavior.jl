@@ -49,7 +49,7 @@ end
 
             dir_other, e_other, occ_weight = occ[x, y]
 
-            e_other != e || continue
+            e_other == e && continue
             left_rel = is_left_relative(x, dir)
 
             if dir_other == dir
