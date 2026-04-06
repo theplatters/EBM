@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["theplatters <fscharnreitner@gmail.com>"]
 
 [deps]
+Agents = "46ada45e-f475-11e8-01d0-f70cc89e6671"
 Ark = "56664e29-41e4-4ea5-ab0e-825499acc647"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -23,6 +24,7 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
 [compat]
+Agents = "7.0.1"
 CairoMakie = "0.15.9"
 DataFrames = "1.8.1"
 GLM = "1.9.3"
