@@ -216,6 +216,8 @@ function plot_parallell_coordinates(res::Vector{SweepResult}; title)
     return fig
 end
 
+clean_up_label(strategy) = replace(string(typeof(strategy)), "EBM.Traffic." => "")
+
 function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
     f = Figure()
     ax = Axis(f[1, 1], xlabel = "Steps", ylabel = "Mean Age")
@@ -231,30 +233,30 @@ function plot_sweeps(d::Dict{OccupancyStrategy, Vector{SweepResult}})
 
     mean_age = Dict(k => v.mean_age for (k, v) in mean_logger)
     for (strategy, vals) in mean_age
-        lines!(ax, vals, label = string(typeof(strategy)))
+        lines!(ax, vals, label = clean_up_label(strategy))
     end
     Legend(f[1, 2], ax)
 
 
     mean_abs_habitus = Dict(k => (v.mean_abs_habitus, v.mean_habitus) for (k, v) in mean_logger)
     for (strategy, (abs_hab, hab)) in mean_abs_habitus
-        lines!(ax2, abs_hab, label = string(typeof(strategy)))
-        lines!(ax22, hab, label = string(typeof(strategy)))
+        lines!(ax2, abs_hab, label = clean_up_label(strategy))
+        lines!(ax22, hab, label = clean_up_label(strategy))
     end
 
     distribution_mean = Dict(k => (mean.(v.distribution_A), var.(v.distribution_A)) for (k, v) in mean_logger)
     for (strategy, (mean, var)) in distribution_mean
-        lines!(ax3, mean, label = string(typeof(strategy)))
+        lines!(ax3, mean, label = clean_up_label(strategy))
     end
 
     distribution_mean = Dict(k => (mean.(v.distribution_O), var.(v.distribution_O)) for (k, v) in mean_logger)
     for (strategy, (mean, var)) in distribution_mean
-        lines!(ax4, mean, label = string(typeof(strategy)))
+        lines!(ax4, mean, label = clean_up_label(strategy))
     end
 
     distribution_mean = Dict(k => (mean.(v.distribution_S), var.(v.distribution_S)) for (k, v) in mean_logger)
     for (strategy, (mean, var)) in distribution_mean
-        lines!(ax5, mean, label = string(typeof(strategy)))
+        lines!(ax5, mean, label = clean_up_label(strategy))
     end
 
 
