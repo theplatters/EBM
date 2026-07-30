@@ -7,13 +7,19 @@ end
 function move!(world)
     ring = Ark.get_resource(world, Ring)
     params = Ark.get_resource(world, ModelParams)
-    rng = Ark.get_resource(world, TaskLocalRNG)
+    rng = simulation_rng(world)
 
     for (e, pos, dir, lr, step) in Query(world, (Position, Direction, LR, Step))
         @inbounds for i in eachindex(e)
             ynew = step_y(pos[i], ring, dir[i])
 
-            go_left = lr[i].val > 0.0
+            go_left = if lr[i].val > 0.0
+                true
+            elseif lr[i].val < 0.0
+                false
+            else
+                is_left_relative(pos[i].x, dir[i])
+            end
             if rand(rng) < params.ϵ
                 go_left = !go_left
             end

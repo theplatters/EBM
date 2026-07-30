@@ -9,6 +9,7 @@ function update_habitus!(world)
 
     for (e, pos, dir, hab, step) in Query(world, (Position, Direction, Habitus, Step))
         @inbounds for i in eachindex(e)
+            step[i].val == 1 && continue
             hab[i] = Habitus(
                 clamp(
                     hab[i].val + relative_lane_sign(pos[i].x, dir[i]) / (params.K + step[i].val),

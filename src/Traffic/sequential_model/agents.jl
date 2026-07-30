@@ -18,7 +18,7 @@ struct Sensitivities
     habitgene::Float64
 end
 
-function normal_sensitivities(rng, ; μ = 1.0, σ = 0.2)
+function normal_sensitivities(rng; μ = 1.0, σ = 0.2)
     draws::Vector{Float64} = rand(rng, Normal(μ, σ), 4)
     return Sensitivities(draws[1], draws[2], draws[3], draws[4])
 end
@@ -41,8 +41,8 @@ function next_agents_in_direction(agent, model, lookahead)
     dy = agent.direction == Clockwise ? 1 : -1
     yy = y
 
-    for d in 1:lookahead
-        yy = mod1(yy + dy, h)
+    for d in 0:lookahead
+        d > 0 && (yy = mod1(yy + dy, h))
         for lane in 1:2
             for other in agents_in_position((lane, yy), model)
                 other.id == agent.id && continue
@@ -92,7 +92,7 @@ function compute_observations(agent, model)
             opp_left += left_rel ? 1 : 0
         end
 
-        if d == 1
+        if d <= 2
             if left_rel
                 CL += 1
             else
@@ -132,8 +132,14 @@ function calculate_lr!(agent, model)
 end
 
 
-function move!(agent, model)
-    go_left = agent.lr > 0.0
+function intended_position(agent, model)
+    go_left = if agent.lr > 0.0
+        true
+    elseif agent.lr < 0.0
+        false
+    else
+        is_left_relative(agent.pos[1], agent.direction)
+    end
 
     if rand(abmrng(model)) < model.params.ϵ
         go_left = !go_left
@@ -141,39 +147,7 @@ function move!(agent, model)
 
     y = agent.pos[2] + Int(agent.direction)
     x = agent.direction == Clockwise ? (go_left ? 1 : 2) : (go_left ? 2 : 1)
-    new_pos = normalize_position((x, y), model)
-
-    # Check whether someone is already at the target position
-    occupants = agents_in_position(new_pos, model)
-
-    if !isempty(occupants)
-        # kill the moving agent and all agents at destination
-        ids_to_remove = [agent.id; [a.id for a in occupants]...]
-        for id in ids_to_remove
-            remove_agent!(id, model)
-        end
-
-        directions = shuffle(abmrng(model), [Clockwise, Counterclockwise])
-        # spawn two new random agents at empty positions
-        for i in 1:2
-            pos = random_empty(model)
-            add_agent!(
-                pos,
-                model;
-                lr = 0.0,
-                sensitivities = normal_sensitivities(abmrng(model)),
-                habitus = 0.0,
-                weights = agent.weights,
-                direction = directions[i],
-                age = 0
-            )
-        end
-
-        return false
-    end
-
-    move_agent!(agent, new_pos, model)
-    return true
+    return normalize_position((x, y), model)
 end
 
 
@@ -191,35 +165,132 @@ function update_habitus!(agent, model)
     return nothing
 end
 
+function collision_ids(previous_positions, intended_positions)
+    final_occupancy = Dict{NTuple{2, Int}, Vector{Int}}()
+    for (id, position) in intended_positions
+        push!(get!(final_occupancy, position, Int[]), id)
+    end
 
-function car_step!(agent, model)
-    calculate_lr!(agent, model)
-    if move!(agent, model)
-        update_habitus!(agent, model)
-        agent.age += 1
+    killed = Set{Int}()
+    for ids in values(final_occupancy)
+        length(ids) > 1 && union!(killed, ids)
+    end
+
+    ids = sort!(collect(keys(previous_positions)))
+    for i in 1:(length(ids) - 1)
+        id_a = ids[i]
+        previous_a = previous_positions[id_a]
+        intended_a = intended_positions[id_a]
+
+        for j in (i + 1):length(ids)
+            id_b = ids[j]
+            previous_b = previous_positions[id_b]
+            intended_b = intended_positions[id_b]
+
+            exact_swap = intended_a == previous_b && intended_b == previous_a
+            diagonal_crossing =
+                previous_a[2] == previous_b[2] &&
+                intended_a[2] == intended_b[2] &&
+                previous_a[1] != previous_b[1] &&
+                intended_a[1] != intended_b[1] &&
+                previous_a[1] == intended_b[1] &&
+                previous_b[1] == intended_a[1]
+
+            (exact_swap || diagonal_crossing) && union!(killed, (id_a, id_b))
+        end
+    end
+
+    return killed
+end
+
+function spawn_replacements!(model, directions, weights)
+    isempty(directions) && return nothing
+
+    rng = abmrng(model)
+    shuffled_directions = shuffle(rng, collect(directions))
+    draws = rand(rng, Normal(1.0, model.params.δ), length(directions), 4)
+
+    for i in eachindex(shuffled_directions)
+        add_agent!(
+            random_empty(model),
+            model;
+            lr = 0.0,
+            sensitivities = Sensitivities(draws[i, 1], draws[i, 2], draws[i, 3], draws[i, 4]),
+            habitus = 0.0,
+            weights = weights,
+            direction = shuffled_directions[i],
+            age = 1,
+        )
     end
     return nothing
 end
 
-function init_model(params, weights)
+"""Advance every scheduled car once, then resolve the completed trajectories."""
+function sequential_step!(model)
+    ids = sort!(collect(allids(model)))
+    isempty(ids) && return nothing
+
+    previous_positions = Dict(id => model[id].pos for id in ids)
+    for id in ids
+        agent = model[id]
+        calculate_lr!(agent, model)
+        move_agent!(agent, intended_position(agent, model), model)
+    end
+
+    intended_positions = Dict(id => model[id].pos for id in ids)
+    killed = collision_ids(previous_positions, intended_positions)
+    killed_directions = [model[id].direction for id in ids if id in killed]
+    weights = model[first(ids)].weights
+
+    for id in ids
+        id in killed && continue
+        agent = model[id]
+        agent.age += 1
+        update_habitus!(agent, model)
+    end
+
+    for id in killed
+        remove_agent!(id, model)
+    end
+    spawn_replacements!(model, killed_directions, weights)
+    return nothing
+end
+
+function initial_positions(rng, params)
+    total = params.ring_x * params.ring_y
+    params.init_agents <= total ||
+        throw(ArgumentError("init_agents=$(params.init_agents) exceeds ring capacity=$total"))
+    indices = randperm(rng, total)[1:params.init_agents]
+    return [
+        (mod1(index, params.ring_x), (index - 1) ÷ params.ring_x + 1)
+            for index in indices
+    ]
+end
+
+function init_model(params, weights; seed::Integer = rand(Int64))
 
     model = StandardABM(
         Car,
-        GridSpace((2, 100));
-        agent_step! = car_step!,
-        properties = (params = params,)
+        GridSpace((params.ring_x, params.ring_y));
+        model_step! = sequential_step!,
+        properties = (params = params,),
+        rng = Random.Xoshiro(seed),
     )
 
-    directions = shuffle(abmrng(model), repeat([Clockwise, Counterclockwise], params.init_agents ÷ 2))
+    rng = abmrng(model)
+    positions = initial_positions(rng, params)
+    directions = shuffle(rng, repeat([Clockwise, Counterclockwise], params.init_agents ÷ 2))
+    draws = rand(rng, Normal(1.0, params.δ), params.init_agents, 4)
     for i in 1:params.init_agents
         add_agent!(
+            positions[i],
             model;
             lr = 0.0,
-            sensitivities = normal_sensitivities(abmrng(model)),
+            sensitivities = Sensitivities(draws[i, 1], draws[i, 2], draws[i, 3], draws[i, 4]),
             habitus = 0.0,
             weights = weights,
             direction = directions[i],
-            age = 0
+            age = 1,
         )
     end
 

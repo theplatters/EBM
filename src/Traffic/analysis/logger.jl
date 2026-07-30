@@ -107,13 +107,14 @@ function log_stays!(world, logger)
 
     stays = 0
     total = 0
-    for (e, pos, prev) in Query(world, (Position, PrevPosition))
+    for (e, pos, prev, step) in Query(world, (Position, PrevPosition, Step))
         @inbounds for i in eachindex(e)
+            step[i].val == 1 && continue
             stays += (pos[i].x == Position(prev[i]).x)
             total += 1
         end
     end
-    push!(logger.stay_ratio, stays / total)
+    push!(logger.stay_ratio, total == 0 ? 0.0 : stays / total)
     return nothing
 end
 

@@ -2,11 +2,14 @@ function delete_on_collision!(world)
     curr_pos = Dict{Ark.Entity, Position}()
     prev_pos = Dict{Ark.Entity, Position}()
     dir_of = Dict{Ark.Entity, Direction}()
+    strategy_of = Dict{Ark.Entity, DriverStrategy}()
 
     curr_occ = Dict{Position, Vector{Ark.Entity}}()
     prev_occ = Dict{Position, Vector{Ark.Entity}}()
 
-    for (e, pos, prev, dir) in Query(world, (Position, PrevPosition, Direction))
+    for (e, pos, prev, dir, strategy) in Query(
+            world, (Position, PrevPosition, Direction, DriverStrategy),
+        )
         @inbounds for i in eachindex(e)
             ent = e[i]
             pcur = pos[i]
@@ -15,6 +18,7 @@ function delete_on_collision!(world)
             curr_pos[ent] = pcur
             prev_pos[ent] = pprev
             dir_of[ent] = dir[i]
+            strategy_of[ent] = strategy[i]
 
             push!(get!(curr_occ, pcur, Ark.Entity[]), ent)
             push!(get!(prev_occ, pprev, Ark.Entity[]), ent)
@@ -22,7 +26,6 @@ function delete_on_collision!(world)
     end
 
     kill = Set{Ark.Entity}()
-    dirs = Direction[]
 
     # 1. Same final cell collisions
     for ents in values(curr_occ)
@@ -30,7 +33,6 @@ function delete_on_collision!(world)
             for ent in ents
                 if ent ∉ kill
                     push!(kill, ent)
-                    push!(dirs, dir_of[ent])
                 end
             end
         end
@@ -76,19 +78,25 @@ function delete_on_collision!(world)
             if collide
                 if e1 ∉ kill
                     push!(kill, e1)
-                    push!(dirs, dir_of[e1])
                 end
                 if e2 ∉ kill
                     push!(kill, e2)
-                    push!(dirs, dir_of[e2])
                 end
             end
         end
     end
 
-    for e in kill
+    killed_entities = sort!(
+        collect(kill);
+        by = entity -> (getfield(entity, :_id), getfield(entity, :_gen)),
+    )
+    replacements = [
+        ReplacementSpec(dir_of[entity], strategy_of[entity])
+            for entity in killed_entities
+    ]
+    for e in killed_entities
         Ark.remove_entity!(world, e)
     end
 
-    return dirs
+    return replacements
 end

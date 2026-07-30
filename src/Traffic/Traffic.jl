@@ -1,5 +1,12 @@
 module Traffic
 
+export TrafficCarState,
+    TrafficSnapshot,
+    plot_traffic,
+    record_traffic,
+    traffic_history,
+    traffic_snapshot
+
 using Ark
 using Random
 using Distributions
@@ -29,6 +36,8 @@ include("systems/habitus.jl")
 include("simulation/step.jl")
 
 include("analysis/logger.jl")
+
+include("analysis/traffic_visualization.jl")
 
 include("analysis/parameter_sweeps.jl")
 include("analysis/plotting.jl")
