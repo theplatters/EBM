@@ -27,41 +27,52 @@ Revise.retry()
 
 # ╔═╡ 79e6b7ee-baf0-4d37-b0ec-3e830543b925
 # ╠═╡ show_logs = false
-sweep = Traffic.run_all(resolution = 10, depth=100)
+sweep = Traffic.run_all(resolution = 10, depth = 100, seed = 42)
 
 # ╔═╡ dc041d84-e0b0-483b-9e4f-260901d500ae
 sweep_logger = Dict(k => Traffic.MeanLogger(v) for (k,v) in sweep)
 
 # ╔═╡ 02de7688-dc32-445f-8b78-9328b873d5bc
 # ╠═╡ show_logs = false
-abm_sweep = Traffic.sweep_weights(Traffic.ABM(), resolution = 10, depth = 100);
+abm_sweep = Traffic.sweep_weights(Traffic.ABM(), resolution = 10, depth = 100, seed = 42);
 
 # ╔═╡ f4fd8918-37cd-41ec-8e83-fa766d6df671
 mean_age = Dict(k => v.mean_age for (k, v) in sweep_logger)
 
 
 # ╔═╡ e04a625c-f493-4fc1-b3ab-baacc8df6595
-abm_mean_age = combine(groupby(vcat([r[1] for r in abm_sweep]...),:time),:age => mean, :habitus => abs ∘ mean );
+begin
+    abm_rows = vcat([result[1] for result in abm_sweep]...)
+    abm_post_step = filter(:time => >(0), abm_rows)
+    abm_mean_age = combine(
+        groupby(abm_post_step, :time),
+        :age => mean => :age_mean,
+        :habitus => (values -> mean(abs, values)) => :mean_abs_habitus,
+    )
+end
 
 # ╔═╡ 0645842c-9a17-49e1-823f-6cd701e32e0b
 generate_label(str) = replace(string(typeof(str)), "EBM.Traffic." => "")
 
 # ╔═╡ c6507f4e-e1c1-4498-b91f-1a805c641175
 begin
-	f = Figure()
-	ax = Axis(f[1,1], xlabel = "Step", ylabel="Mean age")
-	for (strategy, vals) in mean_age
-        lines!(ax,
-			   vals,
-			   label = generate_label(strategy))
+    f = Figure()
+    ax = Axis(f[1, 1], xlabel = "Step", ylabel = "Mean age")
+    for (strategy, vals) in mean_age
+        lines!(ax, vals, label = generate_label(strategy))
     end
-	lines!(ax, abm_mean_age.age_mean, label = "ABM", linestyle=:dot)
+    lines!(
+        ax,
+        abm_mean_age.time,
+        abm_mean_age.age_mean,
+        label = "Sequential ABM",
+        linestyle = :dot,
+    )
 
-	Legend(f[1, 2], ax)
+    Legend(f[1, 2], ax)
 
-	save("../plots/mean_age.png",f)
-f
-	
+    save("../plots/mean_age.png", f)
+    f
 end
 
 
@@ -71,18 +82,23 @@ mean_habitus = Dict(k => v.mean_abs_habitus for (k, v) in sweep_logger)
 
 # ╔═╡ 53495d67-9325-4410-929d-30123e0f4f31
 begin
-	f2 = Figure()
-	ax2 = Axis(f2[1,1], xlabel="Step", ylabel="Mean absolute habitus")
-	for (strategy, vals) in mean_habitus
+    f2 = Figure()
+    ax2 = Axis(f2[1, 1], xlabel = "Step", ylabel = "Mean absolute habitus")
+    for (strategy, vals) in mean_habitus
         lines!(ax2, vals, label = generate_label(strategy))
     end
-	        lines!(ax2, abm_mean_age.habitus_abs_mean, label = "ABM", linestyle=:dot)
+    lines!(
+        ax2,
+        abm_mean_age.time,
+        abm_mean_age.mean_abs_habitus,
+        label = "Sequential ABM",
+        linestyle = :dot,
+    )
 
-	Legend(f2[1, 2], ax2)
+    Legend(f2[1, 2], ax2)
 
-	save("../plots/habitus.png",f2)
-	f2
-	
+    save("../plots/habitus.png", f2)
+    f2
 end
 
 # ╔═╡ b7e47d12-e79a-4869-bd8c-4298aeeeae81
@@ -140,6 +156,13 @@ end
 
 # ╔═╡ f5d76129-5bd3-4493-a9eb-27eac59f17f4
 save("../plots/sweep.png",Traffic.plot_sweeps(sweep))
+
+# Keep the historical plural filename and the random-strategy animation in sync
+# with the same in-memory sweep results.
+save("../plots/sweeps.png", Traffic.plot_sweeps(sweep))
+cd("..") do
+    Traffic.plot_parallell_coordinates(sweep[Traffic.RandomStrategy()]; title = "random.mkv")
+end
 
 # ╔═╡ Cell order:
 # ╠═e214077c-71e6-469d-abdc-0cf63260450d
