@@ -28,7 +28,7 @@
 
 #show: university-theme.with(
   aspect-ratio: "16-9",
-  config-common(frozen-counters: (theorem-counter,), show-notes-on-second-screen: bottom),  // freeze theorem counter for animation
+  config-common(frozen-counters: (theorem-counter,)),  // freeze theorem counter for animation
   config-info(
     title: [Rethinking ABM Architecture],
     subtitle: [Entity Component Systems and the Case for Parallel Agent Interaction],
@@ -57,11 +57,10 @@
 - In each step, a car chooses the left or right lane according to the decision formula
   $ "LR"^n = s^n + o^n + c^n + h^n $.
 - Here, $s^n$, $o^n$, and $c^n$ depend on the cars ahead of car $n$, while $h^n$ represents the driver's habit.
-- Driving on one lane shifts habit toward that lane:
-  $ h^n = h^n_"prev" + "lane" / (K + t^n) $.
+- Driving on one lane shifts habit toward that lane, so $h^n = h^n_"prev" + "lane" / (K + t^n)$.
 
 
-= Main results of Hodgson & Knudsen
+== Main results of Hodgson & Knudsen
 
 - *Habit is crucial for the emergence of convention.*
 - Repeated lane choices gradually become ingrained, making left/right coordination more stable.
@@ -229,7 +228,7 @@
 == A short introduction
 
 
-- ECS stands for *Entity–Component–System*. It is a programming pattern that separates data from behavior.
+- ECS stands for *Entity Component System*. It is a programming pattern that separates data from behavior.
 - *Entities* are unique identifiers. By themselves they do not contain logic or meaning; they simply represent individual objects in the simulation.
 - *Components* are small data containers attached to entities. Each component stores one specific aspect of state, such as position, direction, age, or velocity.
 - An entity is defined by the set of components it has. For example, a car entity might have components for position, direction, habitus, and step count.
@@ -489,6 +488,7 @@
 - The natural way to implement the model in ECS is so that cars move simultaneously.
 - This leads to a problem:
   - How does a car predict where the other cars are in the next step?
+  $ "LR"^n = bb(E)^bb(P)(s^n | cal(F)_t) + bb(E)^bb(P)(o^n | cal(F)_t) + bb(E)^bb(P)(c^n | cal(F)_t) + h^n $.
   - $arrow.dashed$ different prediction strategies.
 
 == Prediction strategies
@@ -549,7 +549,7 @@
 == Conclusion
 
 - ECS provides a natural way to model simultaneous interaction.
-- Reimplementing sequential ABMs in ECS reveals hidden assumptions about prediction and update order.
+- Reimplementing sequential ABMs in ECS forces us to rethink sequentiallity assumptions about the model.
 - In the traffic model, prediction strategy matters greatly for the resulting dynamics.
 - ECS is promising for ABMs, but still underexplored both conceptually and methodologically.
 #show: appendix
