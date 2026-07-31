@@ -24,3 +24,25 @@ function setup_resources!(world, args::ModelArgs{T}) where {T}
 
     return nothing
 end
+
+function setup_resources!(world, args::ModelArgs{CapabilityModel})
+    model = validate(args.prediction_strategy)
+    params = args.params
+    params.ring_x == 2 ||
+        throw(ArgumentError("CapabilityModel currently requires a two-lane ring"))
+    params.ring_y >= 2 * model.max_speed + 1 ||
+        throw(ArgumentError("ring_y is too small for swept speed-aware movement"))
+    params.init_agents <= params.ring_x * params.ring_y ||
+        throw(ArgumentError("init_agents exceeds ring capacity"))
+
+    ring = Ring(params.ring_x, params.ring_y)
+    Ark.add_resource!(world, ring)
+    Ark.add_resource!(world, Occupancy(ring))
+    Ark.add_resource!(world, MeanHabitus(0.0, 0.0))
+    Ark.add_resource!(world, SimulationRNG(args.seed))
+    Ark.add_resource!(world, params)
+    Ark.add_resource!(world, args.weights)
+    Ark.add_resource!(world, model)
+    Ark.add_resource!(world, Logger())
+    return nothing
+end

@@ -18,6 +18,29 @@ struct Sensitivities
     habitgene::Float64
 end
 
+abstract type ActivationTiming end
+
+"""Drivers observe and move one at a time in stable entity-id order."""
+struct SequentialActivation <: ActivationTiming end
+
+"""All drivers decide from one frozen state, then all movements are committed."""
+struct SimultaneousActivation <: ActivationTiming end
+
+"""Per-tick measurements used by the activation-timing experiments."""
+Base.@kwdef mutable struct InteractionDiagnostics
+    encounter_pairs::Vector{Int} = Int[]
+    failed_encounters::Vector{Int} = Int[]
+    compatible_encounters::Vector{Int} = Int[]
+    precoordinated_encounters::Vector{Int} = Int[]
+    aligned_disposition_encounters::Vector{Int} = Int[]
+    observed_disposition_encounters::Vector{Int} = Int[]
+    disposition_consistent_actions::Vector{Int} = Int[]
+    disposition_observed_actions::Vector{Int} = Int[]
+    persistent_actions::Vector{Int} = Int[]
+    observed_actions::Vector{Int} = Int[]
+    deaths::Vector{Int} = Int[]
+end
+
 function normal_sensitivities(rng; μ = 1.0, σ = 0.2)
     draws::Vector{Float64} = rand(rng, Normal(μ, σ), 4)
     return Sensitivities(draws[1], draws[2], draws[3], draws[4])
@@ -177,7 +200,7 @@ function collision_ids(previous_positions, intended_positions)
     end
 
     ids = sort!(collect(keys(previous_positions)))
-    for i in 1:(length(ids) - 1)
+    for i in 1:max(0, length(ids) - 1)
         id_a = ids[i]
         previous_a = previous_positions[id_a]
         intended_a = intended_positions[id_a]
@@ -203,6 +226,144 @@ function collision_ids(previous_positions, intended_positions)
     return killed
 end
 
+@inline function pair_collides(previous_a, intended_a, previous_b, intended_b)
+    same_destination = intended_a == intended_b
+    exact_swap = intended_a == previous_b && intended_b == previous_a
+    diagonal_crossing =
+        previous_a[2] == previous_b[2] &&
+        intended_a[2] == intended_b[2] &&
+        previous_a[1] != previous_b[1] &&
+        intended_a[1] != intended_b[1] &&
+        previous_a[1] == intended_b[1] &&
+        previous_b[1] == intended_a[1]
+    return same_destination || exact_swap || diagonal_crossing
+end
+
+function action_position(position, direction::Direction, go_left::Bool, model)
+    y = position[2] + Int(direction)
+    x = direction == Clockwise ? (go_left ? 1 : 2) : (go_left ? 2 : 1)
+    return normalize_position((x, y), model)
+end
+
+"""
+Return whether two cars face a one-step coordination problem.
+
+An encounter is counted only when the 2×2 joint-action matrix contains both safe
+and colliding outcomes and neither driver has an action that is safe regardless of
+the other's choice. This operationalizes strategic indeterminacy without using the
+drivers' private decision scores.
+"""
+function is_coordination_encounter(agent_a, agent_b, previous_a, previous_b, model)
+    agent_a.direction == agent_b.direction && return false
+
+    next_a = action_position(previous_a, agent_a.direction, false, model)
+    next_b = action_position(previous_b, agent_b.direction, false, model)
+    same_destination_row = next_a[2] == next_b[2]
+    swaps_rows = next_a[2] == previous_b[2] && next_b[2] == previous_a[2]
+    (same_destination_row || swaps_rows) || return false
+
+    outcomes = Matrix{Bool}(undef, 2, 2)
+    actions = (false, true)
+    for (i, action_a) in pairs(actions), (j, action_b) in pairs(actions)
+        intended_a = action_position(previous_a, agent_a.direction, action_a, model)
+        intended_b = action_position(previous_b, agent_b.direction, action_b, model)
+        outcomes[i, j] = pair_collides(previous_a, intended_a, previous_b, intended_b)
+    end
+
+    any(outcomes) || return false
+    all(outcomes) && return false
+    all(any(@view outcomes[i, :]) for i in axes(outcomes, 1)) || return false
+    all(any(@view outcomes[:, j]) for j in axes(outcomes, 2)) || return false
+    return true
+end
+
+@inline function chose_left(position, direction::Direction)
+    return relative_lane_sign(position[1], direction) > 0
+end
+
+function record_interactions!(
+    diagnostics::InteractionDiagnostics,
+    model,
+    ids,
+    previous_positions,
+    intended_positions,
+    killed,
+)
+    encounter_count = 0
+    failure_count = 0
+    compatible_count = 0
+    precoordinated_count = 0
+    aligned_disposition_count = 0
+    observed_disposition_count = 0
+    encounter_agents = Set{Int}()
+
+    for i in 1:max(0, length(ids) - 1)
+        id_a = ids[i]
+        agent_a = model[id_a]
+        for j in (i + 1):length(ids)
+            id_b = ids[j]
+            agent_b = model[id_b]
+            is_coordination_encounter(
+                agent_a,
+                agent_b,
+                previous_positions[id_a],
+                previous_positions[id_b],
+                model,
+            ) || continue
+
+            encounter_count += 1
+            push!(encounter_agents, id_a, id_b)
+            failed = pair_collides(
+                previous_positions[id_a],
+                intended_positions[id_a],
+                previous_positions[id_b],
+                intended_positions[id_b],
+            )
+            failure_count += failed
+            compatible_count += !failed
+
+            habitus_a = agent_a.habitus
+            habitus_b = agent_b.habitus
+            if !iszero(habitus_a) && !iszero(habitus_b)
+                observed_disposition_count += 1
+                dispositions_aligned = signbit(habitus_a) == signbit(habitus_b)
+                aligned_disposition_count += dispositions_aligned
+                action_a_consistent =
+                    chose_left(intended_positions[id_a], agent_a.direction) == (habitus_a > 0)
+                action_b_consistent =
+                    chose_left(intended_positions[id_b], agent_b.direction) == (habitus_b > 0)
+                precoordinated_count +=
+                    dispositions_aligned && action_a_consistent && action_b_consistent
+            end
+        end
+    end
+
+    persistent_count = count(
+        id -> chose_left(intended_positions[id], model[id].direction) ==
+              chose_left(previous_positions[id], model[id].direction),
+        encounter_agents,
+    )
+    disposition_agents = filter(id -> !iszero(model[id].habitus), encounter_agents)
+    disposition_consistent_count = count(
+        id -> chose_left(intended_positions[id], model[id].direction) ==
+              (model[id].habitus > 0),
+        disposition_agents,
+    )
+
+    push!(diagnostics.encounter_pairs, encounter_count)
+    push!(diagnostics.failed_encounters, failure_count)
+    push!(diagnostics.compatible_encounters, compatible_count)
+    push!(diagnostics.precoordinated_encounters, precoordinated_count)
+    push!(diagnostics.aligned_disposition_encounters, aligned_disposition_count)
+    push!(diagnostics.observed_disposition_encounters, observed_disposition_count)
+    push!(diagnostics.disposition_consistent_actions, disposition_consistent_count)
+    push!(diagnostics.disposition_observed_actions, length(disposition_agents))
+    push!(diagnostics.persistent_actions, persistent_count)
+    push!(diagnostics.observed_actions, length(encounter_agents))
+    push!(diagnostics.deaths, length(killed))
+    return nothing
+end
+
 function spawn_replacements!(model, directions, weights)
     isempty(directions) && return nothing
 
@@ -225,20 +386,18 @@ function spawn_replacements!(model, directions, weights)
     return nothing
 end
 
-"""Advance every scheduled car once, then resolve the completed trajectories."""
-function sequential_step!(model)
-    ids = sort!(collect(allids(model)))
-    isempty(ids) && return nothing
-
-    previous_positions = Dict(id => model[id].pos for id in ids)
-    for id in ids
-        agent = model[id]
-        calculate_lr!(agent, model)
-        move_agent!(agent, intended_position(agent, model), model)
-    end
-
-    intended_positions = Dict(id => model[id].pos for id in ids)
+function complete_tick!(model, ids, previous_positions, intended_positions)
     killed = collision_ids(previous_positions, intended_positions)
+    if hasproperty(getfield(model, :properties), :diagnostics)
+        record_interactions!(
+            model.diagnostics,
+            model,
+            ids,
+            previous_positions,
+            intended_positions,
+            killed,
+        )
+    end
     killed_directions = [model[id].direction for id in ids if id in killed]
     weights = model[first(ids)].weights
 
@@ -256,6 +415,53 @@ function sequential_step!(model)
     return nothing
 end
 
+"""Advance every scheduled car in sequence, exposing earlier movements to later decisions."""
+function sequential_step!(model)
+    ids = sort!(collect(allids(model)))
+    isempty(ids) && return nothing
+
+    previous_positions = Dict(id => model[id].pos for id in ids)
+    for id in ids
+        agent = model[id]
+        calculate_lr!(agent, model)
+        move_agent!(agent, intended_position(agent, model), model)
+    end
+
+    intended_positions = Dict(id => model[id].pos for id in ids)
+    return complete_tick!(
+        model,
+        ids,
+        previous_positions,
+        intended_positions,
+    )
+end
+
+"""Decide from a frozen state and commit all intended movements simultaneously."""
+function simultaneous_step!(model)
+    ids = sort!(collect(allids(model)))
+    isempty(ids) && return nothing
+
+    previous_positions = Dict(id => model[id].pos for id in ids)
+    for id in ids
+        agent = model[id]
+        calculate_lr!(agent, model)
+    end
+
+    intended_positions = Dict(
+        id => intended_position(model[id], model)
+            for id in ids
+    )
+    for id in ids
+        move_agent!(model[id], intended_positions[id], model)
+    end
+    return complete_tick!(
+        model,
+        ids,
+        previous_positions,
+        intended_positions,
+    )
+end
+
 function initial_positions(rng, params)
     total = params.ring_x * params.ring_y
     params.init_agents <= total ||
@@ -267,13 +473,24 @@ function initial_positions(rng, params)
     ]
 end
 
-function init_model(params, weights; seed::Integer = rand(Int64))
+function init_model(
+    params,
+    weights;
+    seed::Integer = rand(Int64),
+    timing::ActivationTiming = SequentialActivation(),
+)
+
+    model_step! = timing isa SequentialActivation ? sequential_step! : simultaneous_step!
 
     model = StandardABM(
         Car,
         GridSpace((params.ring_x, params.ring_y));
-        model_step! = sequential_step!,
-        properties = (params = params,),
+        model_step! = model_step!,
+        properties = (
+            params = params,
+            timing = timing,
+            diagnostics = InteractionDiagnostics(),
+        ),
         rng = Random.Xoshiro(seed),
     )
 

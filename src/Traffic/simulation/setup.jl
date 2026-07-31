@@ -3,5 +3,5 @@ Base.@kwdef struct ModelArgs{T <: OccupancyStrategy}
     params::ModelParams = ModelParams()
     weights::Weights = Weights()
     prediction_strategy::T = T()
-    steps::Int64 = 100
+    steps::Int64 = 300
 end

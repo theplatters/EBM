@@ -22,3 +22,21 @@ function step!(world, strategy::OccupancyStrategy)
 
     return nothing
 end
+
+function step!(world, ::CapabilityModel)
+    store_prev_positions!(world)
+    rebuild_occupancy!(world)
+    calculate_capability_proposals!(world)
+    propose_speeds!(world)
+
+    replacements = resolve_capability_movement!(world)
+    spawn_new_entities!(world, replacements)
+
+    habitus_task = Threads.@spawn update_habitus!(world)
+    occupancy_task = Threads.@spawn rebuild_occupancy!(world)
+    wait(habitus_task)
+    update_mean_habitus!(world)
+    wait(occupancy_task)
+    logger!(world, Ark.get_resource(world, CapabilityModel))
+    return nothing
+end

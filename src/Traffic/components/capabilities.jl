@@ -1,0 +1,169 @@
+abstract type CapabilityReplacementPolicy end
+
+"""Draw every replacement independently from the configured entry shares."""
+struct EntryDrawReplacement <: CapabilityReplacementPolicy end
+
+"""
+Inherit a uniformly selected survivor's capability genome, with mutation.
+
+`capability_mutation_rate` is the independent probability that each optional
+capability is gained or lost. `trait_mutation_scale` is the Gaussian standard
+deviation applied to inherited continuous trait values.
+"""
+Base.@kwdef struct EvolutionaryReplacement <: CapabilityReplacementPolicy
+    capability_mutation_rate::Float64 = 0.02
+    trait_mutation_scale::Float64 = 0.05
+end
+
+function validate(policy::EvolutionaryReplacement)
+    0.0 <= policy.capability_mutation_rate <= 1.0 ||
+        throw(ArgumentError("capability_mutation_rate must be in [0, 1]"))
+    policy.trait_mutation_scale >= 0.0 ||
+        throw(ArgumentError("trait_mutation_scale must be nonnegative"))
+    return policy
+end
+
+validate(policy::EntryDrawReplacement) = policy
+
+"""
+Configuration for the bounded-information, capability-composed traffic model.
+
+Capability shares are independent probabilities, so cars may carry any
+meaningful combination of behavioral mechanisms. Every car has speed control;
+the optional components determine how it evaluates lanes and conventions.
+"""
+Base.@kwdef struct CapabilityModel <: OccupancyStrategy
+    same_direction_share::Float64 = 0.75
+    opposite_direction_share::Float64 = 0.75
+    avoidance_share::Float64 = 0.75
+    habit_share::Float64 = 0.5
+    convention_share::Float64 = 0.5
+    habit_weight::Float64 = 0.5
+    convention_weight::Float64 = 0.5
+    convention_learning_rate::Float64 = 0.2
+    convention_noise::Float64 = 0.05
+    convention_threshold::Float64 = 0.1
+    max_speed::Int = 3
+    replacement_policy::CapabilityReplacementPolicy = EntryDrawReplacement()
+end
+
+function validate(model::CapabilityModel)
+    shares = (
+        model.same_direction_share,
+        model.opposite_direction_share,
+        model.avoidance_share,
+        model.habit_share,
+        model.convention_share,
+    )
+    all(share -> 0.0 <= share <= 1.0, shares) ||
+        throw(ArgumentError("capability shares must be in [0, 1]"))
+    model.habit_weight >= 0.0 || throw(ArgumentError("habit_weight must be nonnegative"))
+    model.convention_weight >= 0.0 ||
+        throw(ArgumentError("convention_weight must be nonnegative"))
+    0.0 <= model.convention_learning_rate <= 1.0 ||
+        throw(ArgumentError("convention_learning_rate must be in [0, 1]"))
+    model.convention_noise >= 0.0 ||
+        throw(ArgumentError("convention_noise must be nonnegative"))
+    model.convention_threshold >= 0.0 ||
+        throw(ArgumentError("convention_threshold must be nonnegative"))
+    1 <= model.max_speed <= 3 || throw(ArgumentError("max_speed must be in 1:3"))
+    validate(model.replacement_policy)
+    return model
+end
+
+"""Current integer speed. Capability cars always move at least one cell."""
+struct Speed
+    val::Int
+
+    function Speed(value::Integer)
+        1 <= value <= 3 || throw(ArgumentError("speed must be in 1:3"))
+        return new(Int(value))
+    end
+end
+
+struct SameDirectionResponse
+    sensitivity::Float64
+end
+
+struct OppositeDirectionResponse
+    sensitivity::Float64
+end
+
+struct NearFieldAvoidance
+    sensitivity::Float64
+end
+
+struct HabitFormation
+    disposition::Float64
+end
+
+struct ConventionPerception
+    learning_rate::Float64
+    noise::Float64
+end
+
+struct PerceivedConvention
+    value::Float64
+    confidence::Float64
+end
+
+struct SpeedAdjustment
+    max_speed::Int
+end
+
+"""Private observation copied from the committed state at the start of a tick."""
+struct LocalObservation
+    same_left::Float64
+    opposite_left::Float64
+    close_left::Float64
+    close_right::Float64
+    convention::Float64
+    convention_samples::Int
+end
+
+LocalObservation() = LocalObservation(0.5, 0.5, 0.0, 0.0, 0.0, 0)
+
+struct LaneScore
+    value::Float64
+end
+
+struct LaneProposal
+    lane::Int
+end
+
+struct SpeedProposal
+    value::Int
+end
+
+"""The three micro-step positions implied by a car's private proposal."""
+struct MovementPath
+    positions::NTuple{3, Position}
+end
+
+MovementPath(position::Position) = MovementPath((position, position, position))
+
+"""Heritable optional components, excluding acquired habit and belief state."""
+struct CapabilityGenome
+    same_direction::Union{Nothing, Float64}
+    opposite_direction::Union{Nothing, Float64}
+    avoidance::Union{Nothing, Float64}
+    habit::Union{Nothing, Float64}
+    convention::Union{Nothing, ConventionPerception}
+end
+
+const CAPABILITY_COMPONENTS = (
+    SameDirectionResponse,
+    OppositeDirectionResponse,
+    NearFieldAvoidance,
+    HabitFormation,
+    ConventionPerception,
+)
+
+function capability_mask(world, entity)
+    mask = UInt8(0)
+    for (index, component) in enumerate(CAPABILITY_COMPONENTS)
+        Ark.has_components(world, entity, (component,)) &&
+            (mask |= UInt8(1) << (index - 1))
+    end
+    return mask
+end

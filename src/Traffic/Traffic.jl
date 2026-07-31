@@ -3,6 +3,7 @@ module Traffic
 export TrafficCarState,
     TrafficSnapshot,
     plot_traffic,
+    plot_traffic_history,
     record_traffic,
     traffic_history,
     traffic_snapshot
@@ -19,6 +20,7 @@ using OpenCL
 include("components/agents.jl")
 include("components/spatial.jl")
 include("components/traits.jl")
+include("components/capabilities.jl")
 
 
 include("core/parameters.jl")
@@ -32,6 +34,8 @@ include("systems/collision.jl")
 include("systems/spawning.jl")
 include("systems/behavior.jl")
 include("systems/habitus.jl")
+include("systems/capability_behavior.jl")
+include("systems/capability_movement.jl")
 
 include("simulation/step.jl")
 

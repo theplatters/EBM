@@ -9,10 +9,6 @@ EBM is a mixed-language agent-based modeling project. The Julia package entry po
 - `julia --project=. -e 'using Pkg; Pkg.instantiate()'` installs dependencies pinned by `Manifest.toml`.
 - `julia --project=. -e 'using EBM'` performs a quick package-load smoke test.
 - `julia --project=. -t auto` starts a threaded Julia REPL; run `using EBM` before experiments.
-- `cargo build` compiles the Rust executable; `cargo run` runs `src/main.rs`.
-- `cargo test` runs Rust unit and integration tests.
-- `cargo fmt --check` and `cargo clippy --all-targets` check formatting and common mistakes.
-- `typst compile paper/main.typ` rebuilds the paper when Typst is installed.
 
 Run commands from the repository root, two levels above this directory.
 

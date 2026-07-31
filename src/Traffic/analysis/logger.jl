@@ -132,6 +132,28 @@ function logger!(world)
     return
 end
 
+function collect_component_values(world, ::Type{T}) where {T}
+    values = Float64[]
+    for (_, components) in Query(world, (T,))
+        append!(values, (component.sensitivity for component in components))
+    end
+    return values
+end
+
+function logger!(world, ::CapabilityModel)
+    logger = Ark.get_resource(world, Logger)
+    log_habitus!(world, logger)
+    log_deaths!(world, logger)
+    log_mean_age!(world, logger)
+    log_positions!(world, logger)
+    push!(logger.distribution_S, collect_component_values(world, SameDirectionResponse))
+    push!(logger.distribution_O, collect_component_values(world, OppositeDirectionResponse))
+    push!(logger.distribution_A, collect_component_values(world, NearFieldAvoidance))
+    log_lr!(world, logger)
+    log_stays!(world, logger)
+    return nothing
+end
+
 
 struct MeanLogger <: AbstractLogger
     left::Vector{Tuple{Int64, Int64}}

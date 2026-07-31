@@ -12,6 +12,14 @@ snapshot_signature(snapshot) = [
         for car in snapshot.cars
 ]
 
+capability_signature(snapshot) = [
+    (
+        car.lane, car.cell, Int(car.direction), car.age, car.habitus,
+        car.decision, car.speed, car.capabilities,
+    )
+        for car in snapshot.cars
+]
+
 function sequential_fixture(cars; params = Traffic.ModelParams(init_agents = length(cars)))
     model = StandardABM(
         Traffic.SequentialModel.Car,
@@ -229,6 +237,195 @@ end
     )
 end
 
+@testset "Capability-composed speed model" begin
+    @test Traffic.ModelParams().ring_y == 300
+    @test Traffic.ModelParams().lookahead == 60
+    @test Traffic.ModelParams().init_agents == 120
+    @test Traffic.ModelArgs(prediction_strategy = Traffic.CapabilityModel()).steps == 300
+    @test_throws ArgumentError Traffic.Speed(0)
+    @test_throws ArgumentError Traffic.Speed(4)
+    default_capabilities = Traffic.CapabilityModel()
+    @test (
+        default_capabilities.same_direction_share,
+        default_capabilities.opposite_direction_share,
+        default_capabilities.avoidance_share,
+    ) == (0.75, 0.75, 0.75)
+    @test default_capabilities.replacement_policy isa Traffic.EntryDrawReplacement
+
+    model = Traffic.CapabilityModel(
+        habit_share = 0.0,
+        convention_share = 0.0,
+    )
+    params = Traffic.ModelParams(
+        ϵ = 0.0,
+        init_agents = 1,
+        ring_y = 30,
+        lookahead = 10,
+    )
+    args = Traffic.ModelArgs(
+        seed = 2026,
+        params = params,
+        prediction_strategy = model,
+        steps = 2,
+    )
+    history = Traffic.traffic_history(args)
+    repeated = Traffic.traffic_history(args)
+
+    @test capability_signature.(history) == capability_signature.(repeated)
+    @test all(isnothing(car.strategy) for snapshot in history for car in snapshot.cars)
+    @test all(1 <= car.speed <= 3 for snapshot in history for car in snapshot.cars)
+    @test only(history[2].cars).speed == 3
+    @test only(history[3].cars).speed == 3
+    @test all(snapshot.cumulative_replacements >= 0 for snapshot in history)
+    @test all(snapshot.treatment == :entry_draw for snapshot in history)
+    @test Traffic._resolve_color_by(last(history), :auto) == :speed
+    @test Traffic.plot_traffic(last(history)) isa Traffic.Figure
+    @test Traffic.plot_traffic_history(history) isa Traffic.Figure
+    first_moved = only(history[2].cars)
+    initial = only(history[1].cars)
+    @test first_moved.cell == mod1(
+        initial.cell + 3 * Int(initial.direction), params.ring_y,
+    )
+
+    world = Traffic.setup_world(args)
+    @test !Traffic.Ark.has_resource(world, Traffic.PredictedOccupancy)
+    @test Traffic.Ark.has_resource(world, Traffic.CapabilityModel)
+    @test Traffic.Ark.has_components(
+        world, only(Traffic.traffic_snapshot(world).cars).entity,
+        (Traffic.SpeedAdjustment, Traffic.MovementPath),
+    )
+
+    start_a = Traffic.Position(1, 1)
+    start_b = Traffic.Position(1, 4)
+    path_a = (
+        Traffic.Position(1, 2), Traffic.Position(1, 3), Traffic.Position(1, 4),
+    )
+    path_b = (
+        Traffic.Position(1, 3), Traffic.Position(1, 2), Traffic.Position(1, 1),
+    )
+    @test Traffic.paths_conflict(start_a, path_a, start_b, path_b)
+
+    invalid_model = Traffic.CapabilityModel(max_speed = 4)
+    @test_throws ArgumentError Traffic.setup_world(
+        Traffic.ModelArgs(
+            params = params,
+            prediction_strategy = invalid_model,
+            steps = 0,
+        ),
+    )
+end
+
+@testset "Evolutionary capability replacement" begin
+    parent = Traffic.CapabilityGenome(
+        0.8,
+        nothing,
+        1.2,
+        nothing,
+        Traffic.ConventionPerception(0.2, 0.05),
+    )
+    model = Traffic.CapabilityModel(
+        replacement_policy = Traffic.EvolutionaryReplacement(
+            capability_mutation_rate = 0.0,
+            trait_mutation_scale = 0.0,
+        ),
+    )
+    inherited = Traffic.inherit_capability_genome(
+        parent,
+        model,
+        ones(4),
+        model.replacement_policy,
+        Random.Xoshiro(1),
+    )
+    @test inherited == parent
+
+    flip_policy = Traffic.EvolutionaryReplacement(
+        capability_mutation_rate = 1.0,
+        trait_mutation_scale = 0.0,
+    )
+    mutated = Traffic.inherit_capability_genome(
+        parent, model, [1.0, 1.1, 1.2, 1.3], flip_policy, Random.Xoshiro(2),
+    )
+    @test isnothing(mutated.same_direction)
+    @test mutated.opposite_direction == 1.1
+    @test isnothing(mutated.avoidance)
+    @test mutated.habit == 1.3
+    @test isnothing(mutated.convention)
+
+    disabled_model = Traffic.CapabilityModel(
+        habit_share = 0.0,
+        convention_share = 0.0,
+        replacement_policy = flip_policy,
+    )
+    disabled_parent = Traffic.CapabilityGenome(
+        nothing, nothing, nothing, nothing, nothing,
+    )
+    disabled_mutation = Traffic.inherit_capability_genome(
+        disabled_parent,
+        disabled_model,
+        ones(4),
+        flip_policy,
+        Random.Xoshiro(3),
+    )
+    @test isnothing(disabled_mutation.habit)
+    @test isnothing(disabled_mutation.convention)
+
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.EvolutionaryReplacement(capability_mutation_rate = -0.1),
+    )
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.EvolutionaryReplacement(trait_mutation_scale = -0.1),
+    )
+
+    evolutionary_model = Traffic.CapabilityModel(
+        replacement_policy = Traffic.EvolutionaryReplacement(
+            capability_mutation_rate = 0.05,
+            trait_mutation_scale = 0.05,
+        ),
+    )
+    args = Traffic.ModelArgs(
+        seed = 909,
+        params = Traffic.ModelParams(init_agents = 24, ring_y = 60, lookahead = 15),
+        prediction_strategy = evolutionary_model,
+        steps = 15,
+    )
+    first_run = Traffic.traffic_history(args)
+    second_run = Traffic.traffic_history(args)
+    @test capability_signature.(first_run) == capability_signature.(second_run)
+    @test all(snapshot.treatment == :evolutionary for snapshot in first_run)
+    @test length(last(first_run).cars) == args.params.init_agents
+    @test last(first_run).cumulative_replacements > 0
+end
+
+@testset "Capability composition and replacement" begin
+    model = Traffic.CapabilityModel(
+        same_direction_share = 0.5,
+        opposite_direction_share = 0.5,
+        avoidance_share = 0.5,
+        habit_share = 0.5,
+        convention_share = 0.5,
+    )
+    args = Traffic.ModelArgs(
+        seed = 77,
+        params = Traffic.ModelParams(init_agents = 30, ring_y = 75, lookahead = 15),
+        prediction_strategy = model,
+        steps = 20,
+    )
+    world = Traffic.setup_world(args)
+    initial = Traffic.traffic_snapshot(world)
+    @test length(unique(car.capabilities for car in initial.cars)) > 1
+    initial_directions = countmap(car.direction for car in initial.cars)
+
+    for _ in 1:args.steps
+        Traffic.step!(world, model)
+    end
+    final = Traffic.traffic_snapshot(world)
+    logger = Traffic.Ark.get_resource(world, Traffic.Logger)
+    @test length(final.cars) == args.params.init_agents
+    @test countmap(car.direction for car in final.cars) == initial_directions
+    @test length(logger.deaths) == args.steps
+    @test all(1 <= car.speed <= 3 for car in final.cars)
+end
+
 @testset "Newborn lifecycle accounting" begin
     args = Traffic.ModelArgs(
         seed = 42,
@@ -272,6 +469,44 @@ end
     previous = Dict(1 => (1, 4), 2 => (2, 4))
     crossed = Dict(1 => (2, 5), 2 => (1, 5))
     @test sequential.collision_ids(previous, crossed) == Set((1, 2))
+
+    diagnostic_model = sequential.init_model(
+        params,
+        Traffic.Weights();
+        seed = 2026,
+        timing = sequential.SimultaneousActivation(),
+    )
+    Agents.step!(diagnostic_model, 3)
+    diagnostics = diagnostic_model.diagnostics
+    @test length(diagnostics.encounter_pairs) == 3
+    @test length(diagnostics.failed_encounters) == 3
+    @test all(diagnostics.failed_encounters .<= diagnostics.encounter_pairs)
+    @test diagnostics.compatible_encounters .+ diagnostics.failed_encounters ==
+          diagnostics.encounter_pairs
+
+    clockwise_previous = (1, 1)
+    counterclockwise_previous = (1, 3)
+    actions = (false, true)
+    collision_matrix = [
+        sequential.pair_collides(
+            clockwise_previous,
+            sequential.action_position(
+                clockwise_previous,
+                sequential.Clockwise,
+                action_a,
+                diagnostic_model,
+            ),
+            counterclockwise_previous,
+            sequential.action_position(
+                counterclockwise_previous,
+                sequential.Counterclockwise,
+                action_b,
+                diagnostic_model,
+            ),
+        )
+            for action_a in actions, action_b in actions
+    ]
+    @test collision_matrix == Bool[0 1; 1 0]
 end
 
 @testset "Matched sequential initialization" begin

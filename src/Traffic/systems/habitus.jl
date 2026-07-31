@@ -31,13 +31,13 @@ function update_mean_habitus!(world)
     total_abs_habitus = 0
     total_entities = 0
 
-    for (e, habitus) in Query(world, (Habitus,))
-        total_abs_habitus = sum(abs.(habitus.val))
-        total_habitus = sum(habitus.val)
-        total_entities = length(e)
+    for (entities, values) in Query(world, (Habitus,))
+        total_abs_habitus += sum(abs(value.val) for value in values)
+        total_habitus += sum(value.val for value in values)
+        total_entities += length(entities)
     end
 
-    habitus.abs = total_abs_habitus / total_entities
-    habitus.total = total_habitus / total_entities
+    habitus.abs = total_entities == 0 ? 0.0 : total_abs_habitus / total_entities
+    habitus.total = total_entities == 0 ? 0.0 : total_habitus / total_entities
     return
 end
