@@ -44,6 +44,49 @@ Cars are drawn individually on the two-lane ring. Color distinguishes travel
 direction, while the side panels summarize lane use, direction, age, habitus,
 and left-lane intent.
 
+For `CapabilityModel`, the same interface automatically switches to speed
+coloring and capability-specific diagnostics. A second figure summarizes the
+speed distribution, coordination, replacement pressure, and changing
+capability composition through time. The traffic-response mechanisms default
+to independent 75% entry shares, while habit and convention perception default
+to 50%, so none of the five composition lines is a universal marker:
+
+```julia
+args = Traffic.ModelArgs(
+    seed = 42,
+    prediction_strategy = Traffic.CapabilityModel(),
+    steps = 100,
+)
+history = Traffic.traffic_history(args; every = 5)
+
+save("plots/capability_state.png", Traffic.plot_traffic(last(history)))
+save("plots/capability_history.png", Traffic.plot_traffic_history(history))
+Traffic.record_traffic(history, "plots/capability_model.mp4"; framerate = 12)
+```
+
+See [the capability-model results](notebooks/capability_model_results.md) for
+the bounded-information design, measured scenario, and generated figures.
+The matched [experiments without convention perception](notebooks/no_convention_results.md)
+isolate habit under both entry-draw and evolutionary replacement.
+
+Capability replacement defaults to independent entry draws. To make capability
+transmission evolutionary, select a surviving parent and configure presence
+and quantitative-trait mutation:
+
+```julia
+evolutionary = Traffic.CapabilityModel(
+    replacement_policy = Traffic.EvolutionaryReplacement(
+        capability_mutation_rate = 0.02,
+        trait_mutation_scale = 0.05,
+    ),
+)
+args = Traffic.ModelArgs(seed = 42, prediction_strategy = evolutionary)
+```
+
+The default simulation length is 300 ticks. Evolution preserves the crashed
+car's travel direction, inherits only stable capabilities from the selected
+survivor, and resets newborn habitus and convention confidence.
+
 See [the strategy analysis](notebooks/strategy_analysis.md) for a paired-seed
 comparison of survival, replacements, lane switching, density robustness, and
 behavioral-weight sensitivity across all eight occupancy strategies. For a
