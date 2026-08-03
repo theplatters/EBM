@@ -19,10 +19,10 @@ function main()
     for example in EXAMPLES
         args = Traffic.ModelArgs(
             seed = 42,
-            steps = 60,
+            steps = 5_000,
             prediction_strategy = example.strategy,
         )
-        history = Traffic.traffic_history(args; every = 2)
+        history = Traffic.traffic_history(args; every = 25)
         prefix = joinpath(OUTPUT_DIR, "traffic_$(example.slug)_seed42")
         save("$(prefix)_final.png", Traffic.plot_traffic(last(history)))
         Traffic.record_traffic(history, "$(prefix).mp4"; framerate = 12)

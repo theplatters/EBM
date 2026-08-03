@@ -9,15 +9,15 @@ env_float(name, default) = parse(Float64, get(ENV, name, string(default)))
 
 replicates = env_int("TRAFFIC_REPLICATES", 30)
 first_seed = env_int("TRAFFIC_FIRST_SEED", 20260801)
-steps = env_int("TRAFFIC_STEPS", 1_000)
-burn_in = env_int("TRAFFIC_BURN_IN", steps ÷ 4)
+steps = env_int("TRAFFIC_STEPS", 5_000)
+burn_in = env_int("TRAFFIC_BURN_IN", steps ÷ 5)
 config = ExperimentConfig(
     seeds = first_seed:(first_seed + replicates - 1),
     steps = steps,
     burn_in = burn_in,
     population = env_int("TRAFFIC_POPULATION", 120),
     ring_y = env_int("TRAFFIC_RING_Y", 300),
-    lookahead = env_int("TRAFFIC_LOOKAHEAD", 60),
+    lookahead = env_int("TRAFFIC_LOOKAHEAD", 20),
     error_rate = env_float("TRAFFIC_ERROR_RATE", 0.01),
     habit_weight = env_float("TRAFFIC_HABIT_WEIGHT", 0.5),
 )

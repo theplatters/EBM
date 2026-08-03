@@ -4,12 +4,13 @@ using Statistics
 
 const T = EBM.Traffic
 const SEEDS = 20260730:20260734
-const STEPS = 300
+const STEPS = 5_000
+const BURN_IN = 1_000
 
 function simulate(model, seed; capture_every = nothing)
     args = T.ModelArgs(
         seed = seed,
-        params = T.ModelParams(),
+        params = T.ModelParams(lookahead = 20),
         prediction_strategy = model,
         steps = STEPS,
     )
@@ -34,8 +35,12 @@ function metrics(world)
         mean_speed = mean(car.speed for car in cars),
         speed_three_share = mean(car.speed == 3 for car in cars),
         replacements = sum(logger.deaths),
-        early_replacements = sum(logger.deaths[1:75]),
-        late_replacements = sum(logger.deaths[226:300]),
+        replacement_rate = sum(logger.deaths[(BURN_IN + 1):STEPS]) /
+                           ((STEPS - BURN_IN) * length(cars)),
+        early_replacement_rate = sum(logger.deaths[1:BURN_IN]) /
+                                 (BURN_IN * length(cars)),
+        late_replacement_rate = sum(logger.deaths[(STEPS - BURN_IN + 1):STEPS]) /
+                                (BURN_IN * length(cars)),
         realized_coordination = T._convention_strength(snapshot),
         mean_abs_habitus = T._mean_abs_habitus(snapshot),
         habit_share = capability_shares[4],
@@ -75,29 +80,82 @@ evolutionary_control = T.CapabilityModel(
     replacement_policy = evolutionary_policy,
 )
 
-println("entry_habit=", experiment(entry_habit))
-println("entry_control=", experiment(entry_control))
-println("evolutionary_habit=", experiment(evolutionary_habit))
-println("evolutionary_control=", experiment(evolutionary_control))
+conditions = (
+    ("Entry habit", entry_habit),
+    ("Entry no habit", entry_control),
+    ("Evolution habit", evolutionary_habit),
+    ("Evolution no habit", evolutionary_control),
+)
+condition_list = collect(conditions)
+observations = Vector{NamedTuple}(undef, length(condition_list) * length(SEEDS))
+Threads.@threads for index in eachindex(observations)
+    condition_index = (index - 1) ÷ length(SEEDS) + 1
+    seed_index = (index - 1) % length(SEEDS) + 1
+    model = condition_list[condition_index][2]
+    observations[index] = metrics(first(simulate(model, SEEDS[seed_index])))
+end
+condition_observations = Dict(
+    label => observations[
+        ((condition_index - 1) * length(SEEDS) + 1):(condition_index * length(SEEDS))
+    ]
+        for (condition_index, (label, _)) in enumerate(condition_list)
+)
+for (label, _) in conditions
+    condition_rows = condition_observations[label]
+    names = propertynames(first(condition_rows))
+    summary = NamedTuple{names}(Tuple(
+        mean(getproperty(observation, name) for observation in condition_rows)
+            for name in names
+    ))
+    println(replace(lowercase(label), ' ' => '_'), "=", summary)
+end
 
 mkpath("plots")
 for (slug, model) in (
         ("entry", entry_habit),
         ("evolutionary", evolutionary_habit),
     )
-    _, history = simulate(model, first(SEEDS); capture_every = 3)
+    _, history = simulate(model, first(SEEDS); capture_every = 25)
     @assert all(T._capability_counts(snapshot)[5] == 0 for snapshot in history)
-    save(
-        "plots/no_convention_$(slug)_state.png",
-        T.plot_traffic(last(history)),
-    )
     save(
         "plots/no_convention_$(slug)_dynamics.png",
         T.plot_traffic_history(history),
     )
-    T.record_traffic(
-        history,
-        "plots/no_convention_$(slug).mp4";
-        framerate = 12,
-    )
 end
+
+metrics_to_plot = (
+    (:replacement_rate, "Post-burn-in replacement rate"),
+    (:late_replacement_rate, "Final-1,000-tick replacement rate"),
+    (:mean_speed, "Final mean speed"),
+    (:realized_coordination, "Final realized convention"),
+)
+colors = (:seagreen3, :gray50, :firebrick2, :gray25)
+figure = Figure(size = (1250, 760), fontsize = 15)
+for (panel, (metric, ylabel)) in enumerate(metrics_to_plot)
+    axis = Axis(
+        figure[(panel - 1) ÷ 2 + 1, (panel - 1) % 2 + 1];
+        ylabel = ylabel,
+        xticks = (1:4, collect(first.(conditions))),
+    )
+    for (index, (label, _)) in enumerate(conditions)
+        values = [getproperty(row, metric) for row in condition_observations[label]]
+        scatter!(axis, fill(index, length(values)), values; color = (colors[index], 0.4))
+        scatter!(axis, [index], [mean(values)]; color = colors[index], markersize = 14)
+        errorbars!(
+            axis,
+            [index],
+            [mean(values)],
+            [std(values)],
+            [std(values)];
+            color = :black,
+            whiskerwidth = 8,
+        )
+    end
+end
+Label(
+    figure[0, :],
+    "No-convention ablation — mean ± 1 SD across $(length(SEEDS)) paired runs";
+    fontsize = 21,
+    font = :bold,
+)
+save("plots/no_convention_comparison.png", figure; px_per_unit = 2)

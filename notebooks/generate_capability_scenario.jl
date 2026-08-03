@@ -6,12 +6,12 @@ const T = EBM.Traffic
 
 args = T.ModelArgs(
     seed = 20260730,
-    params = T.ModelParams(),
-    prediction_strategy = T.CapabilityModel(),
-    steps = 300,
+    params = T.ModelParams(lookahead = 20),
+    prediction_strategy = T.CapabilityModel(social_habit_share = 0.5),
+    steps = 5_000,
 )
 
-function run_history(args; every = 3)
+function run_history(args; every = 25)
     world = T.setup_world(args)
     history = T.TrafficSnapshot[T.traffic_snapshot(world; step = 0)]
     for step in 1:args.steps
@@ -34,17 +34,8 @@ convention(snapshot) = abs(mean(
 
 mkpath("plots")
 save(
-    "plots/capability_speed_scenario.png",
-    T.plot_traffic(final),
-)
-save(
     "plots/capability_dynamics.png",
     T.plot_traffic_history(history),
-)
-T.record_traffic(
-    history,
-    "plots/capability_speed_scenario.mp4";
-    framerate = 12,
 )
 
 evolutionary_args = T.ModelArgs(
@@ -60,17 +51,8 @@ evolutionary_args = T.ModelArgs(
 )
 _, evolutionary_history = run_history(evolutionary_args)
 save(
-    "plots/capability_evolutionary_scenario.png",
-    T.plot_traffic(last(evolutionary_history)),
-)
-save(
     "plots/capability_evolutionary_dynamics.png",
     T.plot_traffic_history(evolutionary_history),
-)
-T.record_traffic(
-    evolutionary_history,
-    "plots/capability_speed_evolutionary.mp4";
-    framerate = 12,
 )
 
 ablation_args = T.ModelArgs(
@@ -79,14 +61,14 @@ ablation_args = T.ModelArgs(
     prediction_strategy = T.CapabilityModel(
         habit_share = 0.0,
         convention_share = 0.0,
+        social_habit_share = 0.0,
     ),
     steps = args.steps,
 )
 _, ablation_history = run_history(ablation_args)
-T.record_traffic(
-    ablation_history,
-    "plots/capability_speed_ablation.mp4";
-    framerate = 12,
+save(
+    "plots/capability_ablation_dynamics.png",
+    T.plot_traffic_history(ablation_history),
 )
 
 println("initial mean speed: ", round(mean_speed(initial); digits = 3))
@@ -98,6 +80,6 @@ println(
     "final capability shares: ",
     round.(T._capability_counts(final) ./ length(final.cars); digits = 3),
 )
-println("full animation: plots/capability_speed_scenario.mp4")
-println("ablation animation: plots/capability_speed_ablation.mp4")
-println("evolutionary animation: plots/capability_speed_evolutionary.mp4")
+println("static-entry dynamics: plots/capability_dynamics.png")
+println("ablation dynamics: plots/capability_ablation_dynamics.png")
+println("evolutionary dynamics: plots/capability_evolutionary_dynamics.png")

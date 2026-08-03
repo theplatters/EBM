@@ -155,14 +155,8 @@ begin
 end
 
 # ╔═╡ f5d76129-5bd3-4493-a9eb-27eac59f17f4
-save("../plots/sweep.png",Traffic.plot_sweeps(sweep))
-
-# Keep the historical plural filename and the random-strategy animation in sync
-# with the same in-memory sweep results.
+# Keep one canonical sweep figure; the former singular filename was a byte-for-byte duplicate.
 save("../plots/sweeps.png", Traffic.plot_sweeps(sweep))
-cd("..") do
-    Traffic.plot_parallell_coordinates(sweep[Traffic.RandomStrategy()]; title = "random.mkv")
-end
 
 # ╔═╡ Cell order:
 # ╠═e214077c-71e6-469d-abdc-0cf63260450d

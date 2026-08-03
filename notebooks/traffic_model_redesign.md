@@ -17,7 +17,7 @@ The central recommendation is:
 | Utilize ECS fully | Replace the strategy enum with optional, model-specific capability and acquired-state components processed by separate systems. |
 | Parallel agent interactions | Compute private proposals from one committed snapshot, resolve conflicts deterministically, and commit simultaneously. |
 | Bounded rationality and information | Restrict decisions to local physical observations, personal state, and lagged perceived convention; never expose other agents' dispositions or current proposals. |
-| Break symmetry | Add observable integer speeds from 1 to 3, retain path-dependent personal habit, and use locally observed past convention only as a tie-breaker. |
+| Break symmetry | Add observable integer speeds from 1 to 3 and distinguish personal habit, locally observed convention history, and remembered successful-driver traces. |
 
 ## 1. What the reference model is about
 
@@ -155,12 +155,17 @@ With mandatory unit-speed movement, every encounter must be resolved through lan
 - `NearFieldAvoidance(sensitivity)`
 - `HabitFormation(gene)`
 - `ConventionPerception(horizon, learning_rate, noise)`
+- `SocialHabitFormation(disposition, learning_rate, noise)`
 - `SpeedAdjustment(desired_speed, braking_horizon, acceleration_delay)`
 
 **Acquired private state** belongs only to relevant capabilities:
 
 - `Habitus(value)` for entities with `HabitFormation`
 - `PerceivedConvention(value, confidence)` for entities with `ConventionPerception`
+- `SocialHabitus(value)` for entities with `SocialHabitFormation`
+
+The environment also stores `SuccessfulDriverTrace`, a signed spatial field
+that is deposited only along collision-free paths and decays geometrically.
 
 **Transient decision state** is rewritten each step:
 
@@ -181,25 +186,27 @@ same-direction response system  ─┐
 opposite-direction system       ├─→ LaneScore → LaneProposal
 near-field avoidance system     ┤
 habit system                    ┤
-convention tie-break system     ─┘
+convention response system      ┤
+social-habit response system    ─┘
 ```
 
 All inputs come from current local physical observations, personal acquired state, or lagged observations. No system reads another driver's habit, sensitivities, proposal, or capability bundle.
 
-`PerceivedConvention` is updated from observed realized lane use, expressed relative to each observed driver's direction. It is not the exact mean habitus. It should influence a choice only when direct lane evidence is weak:
+`PerceivedConvention` is updated from a history of observed realized lane use,
+expressed relative to each observed driver's direction. It is not the exact
+mean habitus. `SocialHabitus` has a different source: a history of locally
+observed traces left by successful drivers. All three dispositions contribute
+their weighted signed values to the LR calculation:
 
 ```text
-if lane-score difference is material
-    follow bounded local calculation
-elseif personal habit is established
-    follow habit
-elseif perceived convention is sufficiently clear
-    follow perceived convention
-else
-    retain the current side or make an error-prone choice
+LR = traffic response
+   + habit weight × personal habit
+   + convention weight × perceived convention
+   + social-habit weight × remembered success trace
 ```
 
-This makes the convention a correlated, historically produced tie-breaker rather than hidden global knowledge.
+This makes each mechanism comparable as an LR contribution while keeping its
+information source explicit.
 
 ### 5.3 Add speed as the genuine local safety mechanism
 
@@ -213,11 +220,12 @@ Movement is resolved in three micro-steps. Same-cell, swap, diagonal-crossing, a
 
 ### 5.4 Break symmetry with observable asymmetry and shared history
 
-The requirement is better described as breaking otherwise symmetric encounters. The redesign uses three mechanisms:
+The requirement is better described as breaking otherwise symmetric encounters. The redesign uses four mechanisms:
 
 1. **Path-dependent personal habit.** Different histories generate different individual defaults.
 2. **Lagged perceived convention.** Nearby committed behavior supplies a partially shared signal that can correlate choices without exposing private state.
-3. **Observable speed heterogeneity.** Current speed and distance make some local encounters asymmetric and create a meaningful slowing response.
+3. **Remembered success traces.** Collision-free paths leave spatial information that vanishes from the torus while remaining part of a driver's accumulated social habit.
+4. **Observable speed heterogeneity.** Current speed and distance make some local encounters asymmetric and create a meaningful slowing response.
 
 An exact global convention signal can be added as a separate treatment, but only if interpreted as a public institution such as a communicated traffic rule. It should not be called mean habitus.
 
@@ -228,16 +236,17 @@ Parallel execution must mean that agents make decisions from the same committed 
 ```text
 1. Rebuild physical occupancy from committed positions and speeds
 2. Compute bounded local observations
-3. Update personal convention perceptions from past committed behavior
+3. Update convention histories and social habits from their distinct observations
 4. Reset lane scores
-5. Apply capability-specific lane contributions
+5. Apply all capability-specific LR contributions
 6. Finalize lane proposals
 7. Select the fastest locally safe speed and expand proposals into movement paths
 8. Detect destination, swap, diagonal, and occupied-cell conflicts
-9. Commit all non-conflicting movement simultaneously
-10. Update habit from realized action
-11. Remove collisions and create replacements
-12. Log outcomes
+9. Remove failed drivers and commit collision-free paths simultaneously
+10. Decay old traces and deposit new traces along collision-free paths
+11. Create replacements, which leave no trace on entry
+12. Update personal habit from each survivor's realized side
+13. Log outcomes
 ```
 
 Within each stage, systems can process entity batches in parallel because each agent writes only its own observation, score field, or proposal. The conflict stage is a reduction over proposed paths and must be deterministic and independent of query order. No proposal becomes observable until the commit boundary.
@@ -280,7 +289,8 @@ Vary the shares and combinations of three theoretically distinct capabilities:
 
 1. `HabitFormation`
 2. `ConventionPerception`
-3. `SpeedAdjustment`
+3. `SocialHabitFormation`
+4. `SpeedAdjustment`
 
 The original traffic-response components can remain the common bounded-calculation baseline. This yields interpretable questions instead of a strategy tournament:
 

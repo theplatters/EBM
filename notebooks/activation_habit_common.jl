@@ -10,11 +10,11 @@ const S = T.SequentialModel
 
 Base.@kwdef struct ExperimentConfig
     seeds::UnitRange{Int} = 20260801:20260830
-    steps::Int = 1_000
-    burn_in::Int = 250
+    steps::Int = 5_000
+    burn_in::Int = 1_000
     population::Int = 120
     ring_y::Int = 300
-    lookahead::Int = 60
+    lookahead::Int = 20
     error_rate::Float64 = 0.01
     habit_weight::Float64 = 0.5
 end
@@ -120,8 +120,11 @@ function run_condition(config, seed, timing, habit)
     return summarize_run(model, config, seed, timing, habit)
 end
 
-function run_experiment(config = ExperimentConfig(); progress = true)
-    rows = NamedTuple[]
+function run_experiment(
+        config = ExperimentConfig();
+        progress = true,
+        threaded = Threads.nthreads() > 1,
+    )
     conditions = (
         (S.SequentialActivation(), false),
         (S.SequentialActivation(), true),
@@ -129,11 +132,31 @@ function run_experiment(config = ExperimentConfig(); progress = true)
         (S.SimultaneousActivation(), true),
     )
     total = length(config.seeds) * length(conditions)
-    completed = 0
-    for seed in config.seeds, (timing, habit) in conditions
-        push!(rows, run_condition(config, seed, timing, habit))
-        completed += 1
-        progress && println("completed $completed/$total: seed=$seed, timing=$(timing_name(timing)), habit=$habit")
+    rows = Vector{NamedTuple}(undef, total)
+    completed = Threads.Atomic{Int}(0)
+    progress_lock = ReentrantLock()
+    function run_seed!(seed_index)
+        seed = config.seeds[seed_index]
+        offset = (seed_index - 1) * length(conditions)
+        for (condition_index, (timing, habit)) in enumerate(conditions)
+            rows[offset + condition_index] = run_condition(config, seed, timing, habit)
+            count = Threads.atomic_add!(completed, 1) + 1
+            if progress
+                lock(progress_lock) do
+                    println("completed $count/$total: seed=$seed, timing=$(timing_name(timing)), habit=$habit")
+                end
+            end
+        end
+        return nothing
+    end
+    if threaded
+        Threads.@threads for seed_index in eachindex(config.seeds)
+            run_seed!(seed_index)
+        end
+    else
+        for seed_index in eachindex(config.seeds)
+            run_seed!(seed_index)
+        end
     end
     return rows
 end
