@@ -150,8 +150,18 @@ function entry_capability_genome(model::CapabilityModel, draws, rng)
         rand(rng) < model.convention_share ?
             ConventionPerception(model.convention_learning_rate, model.convention_noise) :
             nothing,
+        model.social_habit_share > 0.0 && rand(rng) < model.social_habit_share ?
+            SocialHabitFormation(
+                draws[5],
+                model.social_habit_learning_rate,
+                model.social_habit_noise,
+            ) :
+            nothing,
     )
 end
+
+capability_trait_count(model::CapabilityModel) =
+    model.social_habit_share > 0.0 ? 5 : 4
 
 function capability_components(genome::CapabilityGenome)
     components = ()
@@ -169,6 +179,13 @@ function capability_components(genome::CapabilityGenome)
             components...,
             genome.convention,
             PerceivedConvention(0.0, 0.0),
+        )
+    end
+    if !isnothing(genome.social_habit)
+        components = (
+            components...,
+            genome.social_habit,
+            SocialHabitus(0.0),
         )
     end
     return components
@@ -205,7 +222,7 @@ function spawn_init_entities!(world, model::CapabilityModel)
         repeat([Clockwise, Counterclockwise], cld(amount, 2))[1:amount],
     )
     speeds = rand(rng, 1:model.max_speed, amount)
-    draws = rand(rng, Normal(1.0, params.δ), amount, 4)
+    draws = rand(rng, Normal(1.0, params.δ), amount, capability_trait_count(model))
     @inbounds for index in 1:amount
         spawn_capability_car!(
             world,
@@ -230,12 +247,14 @@ function capability_genome(world, entity)
     avoidance = optional_component(world, entity, NearFieldAvoidance)
     habit = optional_component(world, entity, HabitFormation)
     convention = optional_component(world, entity, ConventionPerception)
+    social_habit = optional_component(world, entity, SocialHabitFormation)
     return CapabilityGenome(
         isnothing(same) ? nothing : same.sensitivity,
         isnothing(opposite) ? nothing : opposite.sensitivity,
         isnothing(avoidance) ? nothing : avoidance.sensitivity,
         isnothing(habit) ? nothing : habit.disposition,
         convention,
+        social_habit,
     )
 end
 
@@ -267,6 +286,28 @@ function mutate_optional_convention(parent, model, policy, rng)
     )
 end
 
+function mutate_optional_social_habit(parent, entry_disposition, model, policy, rng)
+    if rand(rng) < policy.capability_mutation_rate
+        return isnothing(parent) && model.social_habit_share > 0.0 ?
+               SocialHabitFormation(
+                   entry_disposition,
+                   model.social_habit_learning_rate,
+                   model.social_habit_noise,
+               ) :
+               nothing
+    end
+    isnothing(parent) && return nothing
+    return SocialHabitFormation(
+        mutate_nonnegative(parent.disposition, policy.trait_mutation_scale, rng),
+        clamp(
+            parent.learning_rate + policy.trait_mutation_scale * randn(rng),
+            0.0,
+            1.0,
+        ),
+        mutate_nonnegative(parent.noise, policy.trait_mutation_scale, rng),
+    )
+end
+
 function inherit_capability_genome(
         parent::CapabilityGenome, model::CapabilityModel, draws,
         policy::EvolutionaryReplacement, rng,
@@ -284,6 +325,11 @@ function inherit_capability_genome(
         ),
         mutate_optional_trait(parent.habit, draws[4], model.habit_share > 0.0, policy, rng),
         mutate_optional_convention(parent.convention, model, policy, rng),
+        isnothing(parent.social_habit) && model.social_habit_share == 0.0 ?
+            nothing :
+            mutate_optional_social_habit(
+                parent.social_habit, draws[5], model, policy, rng,
+            ),
     )
 end
 
@@ -326,7 +372,7 @@ function spawn_new_entities!(
     ]
 
     shuffled_replacements = shuffle(rng, collect(replacements))
-    draws = rand(rng, Normal(1.0, params.δ), amount, 4)
+    draws = rand(rng, Normal(1.0, params.δ), amount, capability_trait_count(model))
     for index in 1:amount
         position_index = rand(rng, eachindex(unoccupied_positions))
         position = unoccupied_positions[position_index]

@@ -4,6 +4,7 @@ function observe_capability_traffic!(world)
   ring = Ark.get_resource(world, Ring)
   params = Ark.get_resource(world, ModelParams)
   model = Ark.get_resource(world, CapabilityModel)
+  success_traces = Ark.get_resource(world, SuccessfulDriverTrace).grid
   horizon = min(params.lookahead, Int(ring.height) - 1)
 
   for (entities, positions, directions, observations) in Query(
@@ -20,10 +21,17 @@ function observe_capability_traffic!(world)
       close_right = 0
       convention = 0.0
       convention_samples = 0
+      success_trace = 0.0
+      success_trace_samples = 0
 
       for distance in 1:horizon
         y = ahead_y(position.y, direction, distance, Int(ring.height))
         for lane in 1:Int(ring.width)
+          trace = success_traces[lane, y]
+          if abs(trace) >= SUCCESS_TRACE_CUTOFF
+            success_trace += trace
+            success_trace_samples += 1
+          end
           other_direction = occupancy[lane, y]
           isnothing(other_direction) && continue
           left_relative = is_left_relative(lane, direction)
@@ -53,6 +61,8 @@ function observe_capability_traffic!(world)
         close_right,
         convention_samples == 0 ? 0.0 : convention / convention_samples,
         convention_samples,
+        success_trace_samples == 0 ? 0.0 : success_trace / success_trace_samples,
+        success_trace_samples,
       )
     end
   end
@@ -69,7 +79,6 @@ function learn_conventions!(world)
       observation = observations[index]
       old = conventions[index]
       if observation.convention_samples == 0
-        conventions[index] = PerceivedConvention(old.value, 0.95 * old.confidence)
         continue
       end
       perception = perceptions[index]
@@ -80,6 +89,30 @@ function learn_conventions!(world)
       conventions[index] = PerceivedConvention(
         clamp((1 - rate) * old.value + rate * noisy_observation, -1.0, 1.0),
         clamp((1 - rate) * old.confidence + rate, 0.0, 1.0),
+      )
+    end
+  end
+  return nothing
+end
+
+"""Build a persistent disposition from a history of local success traces."""
+function learn_social_habits!(world)
+  rng = simulation_rng(world)
+  for (entities, observations, formations, habitus) in Query(
+    world,
+    (LocalObservation, SocialHabitFormation, SocialHabitus),
+  )
+    @inbounds for index in eachindex(entities)
+      observation = observations[index]
+      observation.success_trace_samples == 0 && continue
+      formation = formations[index]
+      noisy_trace = clamp(
+        observation.success_trace + formation.noise * randn(rng), -1.0, 1.0,
+      )
+      rate = formation.learning_rate
+      old = habitus[index].value
+      habitus[index] = SocialHabitus(
+        clamp((1 - rate) * old + rate * noisy_trace, -1.0, 1.0),
       )
     end
   end
@@ -150,16 +183,27 @@ function add_habit_response!(world)
   return nothing
 end
 
-"""Use perceived mean practice only when ordinary lane evidence is indecisive."""
-function add_convention_tiebreaker!(world)
+function add_social_habit_response!(world)
+  model = Ark.get_resource(world, CapabilityModel)
+  for (entities, formations, habitus, scores) in Query(
+    world, (SocialHabitFormation, SocialHabitus, LaneScore),
+  )
+    @inbounds for index in eachindex(entities)
+      value = model.social_habit_weight * formations[index].disposition *
+              habitus[index].value
+      scores[index] = LaneScore(scores[index].value + value)
+    end
+  end
+  return nothing
+end
+
+function add_convention_response!(world)
   model = Ark.get_resource(world, CapabilityModel)
   for (entities, perceptions, scores) in Query(
     world, (PerceivedConvention, LaneScore),
   )
     @inbounds for index in eachindex(entities)
-      abs(scores[index].value) > model.convention_threshold && continue
       perception = perceptions[index]
-      abs(perception.value) <= model.convention_threshold && continue
       value = model.convention_weight * perception.confidence * perception.value
       scores[index] = LaneScore(scores[index].value + value)
     end
@@ -194,12 +238,14 @@ end
 function calculate_capability_proposals!(world)
   observe_capability_traffic!(world)
   learn_conventions!(world)
+  learn_social_habits!(world)
   reset_lane_scores!(world)
   add_same_direction_response!(world)
   add_opposite_direction_response!(world)
   add_near_field_avoidance!(world)
   add_habit_response!(world)
-  add_convention_tiebreaker!(world)
+  add_convention_response!(world)
+  add_social_habit_response!(world)
   propose_lanes!(world)
   return nothing
 end

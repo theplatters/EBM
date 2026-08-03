@@ -14,6 +14,7 @@ struct Habitgene
     val::Float64
 end
 
+"""Disposition accumulated from the driver's own realized lane history."""
 struct Habitus
     val::Float64
 end

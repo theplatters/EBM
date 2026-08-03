@@ -32,6 +32,8 @@ function setup_world(args::ModelArgs{CapabilityModel})
         HabitFormation,
         ConventionPerception,
         PerceivedConvention,
+        SocialHabitFormation,
+        SocialHabitus,
         Habitus,
         LocalObservation,
         LaneScore,

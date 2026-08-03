@@ -38,12 +38,19 @@ Base.@kwdef struct CapabilityModel <: OccupancyStrategy
     avoidance_share::Float64 = 0.75
     habit_share::Float64 = 0.5
     convention_share::Float64 = 0.5
+    social_habit_share::Float64 = 0.0
     habit_weight::Float64 = 0.5
     convention_weight::Float64 = 0.5
+    social_habit_weight::Float64 = 0.5
     convention_learning_rate::Float64 = 0.2
     convention_noise::Float64 = 0.05
-    convention_threshold::Float64 = 0.1
+    social_habit_learning_rate::Float64 = 0.2
+    social_habit_noise::Float64 = 0.05
+    social_trace_retention::Float64 = 0.9
+    social_trace_deposit::Float64 = 0.25
     max_speed::Int = 3
+    speed_clearance::Float64 = 0.0
+    prefer_lane_over_speed::Bool = false
     replacement_policy::CapabilityReplacementPolicy = EntryDrawReplacement()
 end
 
@@ -54,19 +61,30 @@ function validate(model::CapabilityModel)
         model.avoidance_share,
         model.habit_share,
         model.convention_share,
+        model.social_habit_share,
     )
     all(share -> 0.0 <= share <= 1.0, shares) ||
         throw(ArgumentError("capability shares must be in [0, 1]"))
     model.habit_weight >= 0.0 || throw(ArgumentError("habit_weight must be nonnegative"))
     model.convention_weight >= 0.0 ||
         throw(ArgumentError("convention_weight must be nonnegative"))
+    model.social_habit_weight >= 0.0 ||
+        throw(ArgumentError("social_habit_weight must be nonnegative"))
     0.0 <= model.convention_learning_rate <= 1.0 ||
         throw(ArgumentError("convention_learning_rate must be in [0, 1]"))
     model.convention_noise >= 0.0 ||
         throw(ArgumentError("convention_noise must be nonnegative"))
-    model.convention_threshold >= 0.0 ||
-        throw(ArgumentError("convention_threshold must be nonnegative"))
+    0.0 <= model.social_habit_learning_rate <= 1.0 ||
+        throw(ArgumentError("social_habit_learning_rate must be in [0, 1]"))
+    model.social_habit_noise >= 0.0 ||
+        throw(ArgumentError("social_habit_noise must be nonnegative"))
+    0.0 <= model.social_trace_retention < 1.0 ||
+        throw(ArgumentError("social_trace_retention must be in [0, 1)"))
+    model.social_trace_deposit > 0.0 ||
+        throw(ArgumentError("social_trace_deposit must be positive"))
     1 <= model.max_speed <= 3 || throw(ArgumentError("max_speed must be in 1:3"))
+    model.speed_clearance >= 0.0 ||
+        throw(ArgumentError("speed_clearance must be nonnegative"))
     validate(model.replacement_policy)
     return model
 end
@@ -93,18 +111,33 @@ struct NearFieldAvoidance
     sensitivity::Float64
 end
 
+"""Hodgson–Knudsen capability for reinforcing the driver's own realized side."""
 struct HabitFormation
     disposition::Float64
 end
 
+"""Capability for remembering the locally observed side choices of other drivers."""
 struct ConventionPerception
     learning_rate::Float64
     noise::Float64
 end
 
+"""Private disposition calculated from a history of local lane-choice observations."""
 struct PerceivedConvention
     value::Float64
     confidence::Float64
+end
+
+"""Capability for building a lane disposition from successful-driver traces."""
+struct SocialHabitFormation
+    disposition::Float64
+    learning_rate::Float64
+    noise::Float64
+end
+
+"""Private lane disposition built from a history of observed success traces."""
+struct SocialHabitus
+    value::Float64
 end
 
 struct SpeedAdjustment
@@ -119,9 +152,17 @@ struct LocalObservation
     close_right::Float64
     convention::Float64
     convention_samples::Int
+    success_trace::Float64
+    success_trace_samples::Int
 end
 
-LocalObservation() = LocalObservation(0.5, 0.5, 0.0, 0.0, 0.0, 0)
+LocalObservation(same_left, opposite_left, close_left, close_right, convention, convention_samples) =
+    LocalObservation(
+        same_left, opposite_left, close_left, close_right,
+        convention, convention_samples, 0.0, 0,
+    )
+
+LocalObservation() = LocalObservation(0.5, 0.5, 0.0, 0.0, 0.0, 0, 0.0, 0)
 
 struct LaneScore
     value::Float64
@@ -149,7 +190,14 @@ struct CapabilityGenome
     avoidance::Union{Nothing, Float64}
     habit::Union{Nothing, Float64}
     convention::Union{Nothing, ConventionPerception}
+    social_habit::Union{Nothing, SocialHabitFormation}
 end
+
+# Preserve the pre-social-habit constructor for callers defining legacy genomes.
+CapabilityGenome(same_direction, opposite_direction, avoidance, habit, convention) =
+    CapabilityGenome(
+        same_direction, opposite_direction, avoidance, habit, convention, nothing,
+    )
 
 const CAPABILITY_COMPONENTS = (
     SameDirectionResponse,
@@ -157,6 +205,7 @@ const CAPABILITY_COMPONENTS = (
     NearFieldAvoidance,
     HabitFormation,
     ConventionPerception,
+    SocialHabitFormation,
 )
 
 function capability_mask(world, entity)

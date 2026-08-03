@@ -34,6 +34,7 @@ include("systems/collision.jl")
 include("systems/spawning.jl")
 include("systems/behavior.jl")
 include("systems/habitus.jl")
+include("systems/social_habit.jl")
 include("systems/capability_behavior.jl")
 include("systems/capability_movement.jl")
 

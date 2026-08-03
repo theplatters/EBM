@@ -10,6 +10,7 @@ struct TrafficCarState
     strategy::Union{Nothing, DriverStrategy}
     speed::Int
     capabilities::UInt8
+    social_habitus::Float64
 end
 
 """Immutable, renderer-independent view of the Traffic simulation at one step."""
@@ -44,6 +45,11 @@ function traffic_snapshot(world; step::Integer = 0)
                 else
                     0.0
                 end
+                social_habitus = if Ark.has_components(world, entity, (SocialHabitus,))
+                    Ark.get_components(world, entity, (SocialHabitus,))[1].value
+                else
+                    0.0
+                end
                 push!(
                     cars,
                     TrafficCarState(
@@ -57,6 +63,7 @@ function traffic_snapshot(world; step::Integer = 0)
                         nothing,
                         speeds[index].val,
                         capability_mask(world, entity),
+                        social_habitus,
                     ),
                 )
             end
@@ -80,6 +87,7 @@ function traffic_snapshot(world; step::Integer = 0)
                         strategies[index],
                         1,
                         UInt8(0),
+                        0.0,
                     ),
                 )
             end
@@ -142,9 +150,10 @@ const TRAFFIC_CAPABILITY_LABELS = (
     "Avoidance",
     "Habit",
     "Convention",
+    "Social habit",
 )
 
-const TRAFFIC_CAPABILITY_COLORS = Makie.resample_cmap(:Set2, 5)
+const TRAFFIC_CAPABILITY_COLORS = Makie.resample_cmap(:Set2, 6)
 
 _is_capability_snapshot(snapshot::TrafficSnapshot) =
     any(car -> isnothing(car.strategy), snapshot.cars)
@@ -232,6 +241,13 @@ function _mean_abs_habitus(snapshot::TrafficSnapshot)
     return _safe_mean(values)
 end
 
+function _mean_abs_social_habitus(snapshot::TrafficSnapshot)
+    values = [
+        abs(car.social_habitus) for car in snapshot.cars if _has_capability(car, 6)
+    ]
+    return _safe_mean(values)
+end
+
 _safe_mean(values) = isempty(values) ? 0.0 : mean(values)
 
 function _snapshot_summary(snapshot::TrafficSnapshot)
@@ -252,6 +268,7 @@ function _snapshot_summary(snapshot::TrafficSnapshot)
                 "Share at speed 3           $(round(100 * speed_three_share; digits = 1))%",
                 "Convention strength        $(round(_convention_strength(snapshot); digits = 3))",
                 "Mean |habitus| (carriers)  $(round(_mean_abs_habitus(snapshot); digits = 3))",
+                "Mean |social habit|        $(round(_mean_abs_social_habitus(snapshot); digits = 3))",
                 "Replacements this tick     $(snapshot.replacements)",
                 "Cumulative replacements    $(snapshot.cumulative_replacements)",
                 "Mean car age               $(round(mean_age; digits = 1)) steps",
@@ -387,13 +404,13 @@ function _traffic_dashboard(
         capability_axis = Axis(
             figure[3, 2];
             title = "Capability prevalence",
-            xticks = (1:5, collect(TRAFFIC_CAPABILITY_LABELS)),
+            xticks = (eachindex(TRAFFIC_CAPABILITY_LABELS), collect(TRAFFIC_CAPABILITY_LABELS)),
             ylabel = "cars",
             xticklabelrotation = π / 8,
         )
         capability_counts = lift(_capability_counts, snapshot)
         barplot!(
-            capability_axis, 1:5, capability_counts;
+            capability_axis, eachindex(TRAFFIC_CAPABILITY_LABELS), capability_counts;
             color = TRAFFIC_CAPABILITY_COLORS,
         )
         ylims!(capability_axis, 0, count_limit)
@@ -566,6 +583,17 @@ function plot_traffic_history(
         linewidth = 3,
         label = "Mean |habitus|",
     )
+    social_habit_strength = [_mean_abs_social_habitus(snapshot) for snapshot in history]
+    if maximum(social_habit_strength) > 0.0
+        lines!(
+            coordination_axis,
+            steps,
+            social_habit_strength;
+            color = Makie.wong_colors()[3],
+            linewidth = 3,
+            label = "Mean |social habit|",
+        )
+    end
     ylims!(coordination_axis, 0, 1)
     axislegend(coordination_axis; position = :rb, framevisible = false)
 

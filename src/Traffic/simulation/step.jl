@@ -30,6 +30,7 @@ function step!(world, ::CapabilityModel)
     propose_speeds!(world)
 
     replacements = resolve_capability_movement!(world)
+    update_success_traces!(world)
     spawn_new_entities!(world, replacements)
 
     habitus_task = Threads.@spawn update_habitus!(world)

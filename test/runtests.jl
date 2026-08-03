@@ -15,7 +15,7 @@ snapshot_signature(snapshot) = [
 capability_signature(snapshot) = [
     (
         car.lane, car.cell, Int(car.direction), car.age, car.habitus,
-        car.decision, car.speed, car.capabilities,
+        car.social_habitus, car.decision, car.speed, car.capabilities,
     )
         for car in snapshot.cars
 ]
@@ -251,6 +251,7 @@ end
         default_capabilities.avoidance_share,
     ) == (0.75, 0.75, 0.75)
     @test default_capabilities.replacement_policy isa Traffic.EntryDrawReplacement
+    @test default_capabilities.social_habit_share == 0.0
 
     model = Traffic.CapabilityModel(
         habit_share = 0.0,
@@ -313,6 +314,296 @@ end
             steps = 0,
         ),
     )
+    @test_throws ArgumentError Traffic.setup_world(
+        Traffic.ModelArgs(
+            params = params,
+            prediction_strategy = Traffic.CapabilityModel(speed_clearance = -0.1),
+            steps = 0,
+        ),
+    )
+
+    adjacent_path = (
+        Traffic.Position(1, 2), Traffic.Position(1, 3), Traffic.Position(1, 4),
+    )
+    following_path = (
+        Traffic.Position(1, 3), Traffic.Position(1, 4), Traffic.Position(1, 5),
+    )
+    @test !Traffic.clearance_violated(adjacent_path, following_path, 0, 30)
+    @test Traffic.clearance_violated(adjacent_path, following_path, 1, 30)
+
+    function speed_priority_world(prefer_lane)
+        priority_model = Traffic.CapabilityModel(
+            max_speed = 3,
+            prefer_lane_over_speed = prefer_lane,
+        )
+        priority_world = Traffic.setup_world(
+            Traffic.ModelArgs(
+                seed = 30,
+                params = Traffic.ModelParams(
+                    init_agents = 2,
+                    ring_y = 20,
+                    lookahead = 5,
+                ),
+                prediction_strategy = priority_model,
+                steps = 0,
+            ),
+        )
+        subject = first(Traffic.traffic_snapshot(priority_world).cars).entity
+        for (entities, positions, directions, speeds, controls, lanes) in
+                Traffic.Query(
+            priority_world,
+            (
+                Traffic.Position,
+                Traffic.Direction,
+                Traffic.Speed,
+                Traffic.SpeedAdjustment,
+                Traffic.LaneProposal,
+            ),
+        )
+            for index in eachindex(entities)
+                if entities[index] == subject
+                    positions[index] = Traffic.Position(1, 1)
+                    directions[index] = Traffic.Clockwise
+                    speeds[index] = Traffic.Speed(3)
+                    controls[index] = Traffic.SpeedAdjustment(3)
+                    lanes[index] = Traffic.LaneProposal(1)
+                else
+                    positions[index] = Traffic.Position(1, 5)
+                    directions[index] = Traffic.Counterclockwise
+                    speeds[index] = Traffic.Speed(1)
+                    controls[index] = Traffic.SpeedAdjustment(3)
+                    lanes[index] = Traffic.LaneProposal(1)
+                end
+            end
+        end
+        Traffic.propose_speeds!(priority_world)
+        lane, speed = Traffic.Ark.get_components(
+            priority_world,
+            subject,
+            (Traffic.LaneProposal, Traffic.SpeedProposal),
+        )
+        return lane.lane, speed.value
+    end
+
+    @test speed_priority_world(false) == (2, 3)
+    @test speed_priority_world(true) == (1, 2)
+end
+
+@testset "Habit, convention, and social-habit semantics" begin
+    params = Traffic.ModelParams(
+        ϵ = 0.0,
+        init_agents = 1,
+        ring_y = 20,
+        lookahead = 5,
+    )
+
+    habit_model = Traffic.CapabilityModel(
+        same_direction_share = 0.0,
+        opposite_direction_share = 0.0,
+        avoidance_share = 0.0,
+        habit_share = 1.0,
+        convention_share = 0.0,
+        social_habit_share = 0.0,
+        habit_weight = 0.75,
+        max_speed = 1,
+    )
+    habit_world = Traffic.setup_world(
+        Traffic.ModelArgs(
+            seed = 19,
+            params = params,
+            prediction_strategy = habit_model,
+            steps = 0,
+        ),
+    )
+    initial_habit_car = only(Traffic.traffic_snapshot(habit_world).cars)
+    initial_side = Traffic.relative_lane_sign(
+        initial_habit_car.lane, initial_habit_car.direction,
+    )
+    Traffic.step!(habit_world, habit_model)
+    first_habit_car = only(Traffic.traffic_snapshot(habit_world).cars)
+    @test first_habit_car.habitus ≈ initial_side / (params.K + 2)
+
+    habit_formation = Traffic.Ark.get_components(
+        habit_world, first_habit_car.entity, (Traffic.HabitFormation,),
+    )[1]
+    expected_habit_lr = habit_model.habit_weight * habit_formation.disposition *
+                        first_habit_car.habitus
+    Traffic.step!(habit_world, habit_model)
+    @test only(Traffic.traffic_snapshot(habit_world).cars).decision ≈ expected_habit_lr
+
+    convention_model = Traffic.CapabilityModel(
+        same_direction_share = 0.0,
+        opposite_direction_share = 0.0,
+        avoidance_share = 0.0,
+        habit_share = 0.0,
+        convention_share = 1.0,
+        social_habit_share = 0.0,
+        convention_weight = 0.75,
+        convention_learning_rate = 0.25,
+        convention_noise = 0.0,
+        max_speed = 1,
+    )
+    convention_world = Traffic.setup_world(
+        Traffic.ModelArgs(
+            seed = 20,
+            params = params,
+            prediction_strategy = convention_model,
+            steps = 0,
+        ),
+    )
+    for (_, observations) in Traffic.Query(
+            convention_world, (Traffic.LocalObservation,),
+        )
+        observations[1] = Traffic.LocalObservation(0.5, 0.5, 0.0, 0.0, 0.8, 4)
+    end
+    Traffic.learn_conventions!(convention_world)
+    convention = only([
+        value
+            for (_, values) in Traffic.Query(
+                convention_world, (Traffic.PerceivedConvention,),
+            )
+            for value in values
+    ])
+    @test convention.value ≈ 0.2
+    @test convention.confidence ≈ 0.25
+
+    Traffic.reset_lane_scores!(convention_world)
+    for (_, scores) in Traffic.Query(convention_world, (Traffic.LaneScore,))
+        scores[1] = Traffic.LaneScore(10.0)
+    end
+    Traffic.add_convention_response!(convention_world)
+    Traffic.propose_lanes!(convention_world)
+    expected_convention_lr = 10.0 + convention_model.convention_weight *
+                                    convention.confidence * convention.value
+    convention_entity = only(Traffic.traffic_snapshot(convention_world).cars).entity
+    @test Traffic.Ark.get_components(
+        convention_world, convention_entity, (Traffic.LR,),
+    )[1].val ≈ expected_convention_lr
+
+    for (_, observations) in Traffic.Query(
+            convention_world, (Traffic.LocalObservation,),
+        )
+        observations[1] = Traffic.LocalObservation()
+    end
+    Traffic.learn_conventions!(convention_world)
+    @test Traffic.Ark.get_components(
+        convention_world, convention_entity, (Traffic.PerceivedConvention,),
+    )[1] == convention
+
+    social_model = Traffic.CapabilityModel(
+        same_direction_share = 0.0,
+        opposite_direction_share = 0.0,
+        avoidance_share = 0.0,
+        habit_share = 0.0,
+        convention_share = 0.0,
+        social_habit_share = 1.0,
+        social_habit_weight = 0.75,
+        social_habit_learning_rate = 0.25,
+        social_habit_noise = 0.0,
+        social_trace_retention = 0.5,
+        social_trace_deposit = 0.4,
+        max_speed = 2,
+    )
+    social_world = Traffic.setup_world(
+        Traffic.ModelArgs(
+            seed = 21,
+            params = params,
+            prediction_strategy = social_model,
+            steps = 0,
+        ),
+    )
+
+    social_car = only(Traffic.traffic_snapshot(social_world).cars)
+    entity = social_car.entity
+    @test Traffic.Ark.has_components(
+        social_world,
+        entity,
+        (Traffic.SocialHabitFormation, Traffic.SocialHabitus),
+    )
+    @test Traffic.capability_mask(social_world, entity) == UInt8(1) << 5
+
+    trace_lane = social_car.direction == Traffic.Clockwise ? 1 : 2
+    trace_path = (
+        Traffic.Position(trace_lane, 2),
+        Traffic.Position(trace_lane, 3),
+        Traffic.Position(trace_lane, 3),
+    )
+    for (_, speeds, paths) in Traffic.Query(
+            social_world, (Traffic.Speed, Traffic.MovementPath),
+        )
+        speeds[1] = Traffic.Speed(2)
+        paths[1] = Traffic.MovementPath(trace_path)
+    end
+    Traffic.deposit_success_traces!(social_world)
+    traces = Traffic.Ark.get_resource(
+        social_world, Traffic.SuccessfulDriverTrace,
+    ).grid
+    @test traces[trace_lane, 2] ≈ 0.4
+    @test traces[trace_lane, 3] ≈ 0.4
+    Traffic.decay_success_traces!(social_world)
+    @test traces[trace_lane, 2] ≈ 0.2
+    @test traces[trace_lane, 3] ≈ 0.2
+
+    fill!(traces, 0.0)
+    current_position = Traffic.Ark.get_components(
+        social_world, entity, (Traffic.Position,),
+    )[1]
+    trace_y = Traffic.ahead_y(
+        current_position.y, social_car.direction, 1, params.ring_y,
+    )
+    traces[trace_lane, trace_y] = 0.8
+    Traffic.observe_capability_traffic!(social_world)
+    observation = Traffic.Ark.get_components(
+        social_world, entity, (Traffic.LocalObservation,),
+    )[1]
+    @test observation.success_trace ≈ 0.8
+    @test observation.success_trace_samples == 1
+
+    Traffic.learn_social_habits!(social_world)
+
+    learned = only([
+        habit.value
+            for (_, habits) in Traffic.Query(social_world, (Traffic.SocialHabitus,))
+            for habit in habits
+    ])
+    @test learned ≈ 0.2
+
+    Traffic.reset_lane_scores!(social_world)
+    Traffic.add_social_habit_response!(social_world)
+    Traffic.propose_lanes!(social_world)
+    formation = Traffic.Ark.get_components(
+        social_world, entity, (Traffic.SocialHabitFormation,),
+    )[1]
+    expected_social_lr = social_model.social_habit_weight *
+                         formation.disposition * learned
+    @test Traffic.Ark.get_components(
+        social_world, entity, (Traffic.LR,),
+    )[1].val ≈ expected_social_lr
+
+    for (_, observations) in Traffic.Query(
+            social_world, (Traffic.LocalObservation,),
+        )
+        # A convention observation is deliberately not a success-trace observation.
+        observations[1] = Traffic.LocalObservation(0.5, 0.5, 0.0, 0.0, -1.0, 4)
+    end
+    Traffic.learn_social_habits!(social_world)
+    persisted = Traffic.Ark.get_components(
+        social_world, entity, (Traffic.SocialHabitus,),
+    )[1]
+    @test persisted.value == learned
+
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(social_habit_share = 1.1),
+    )
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(social_habit_learning_rate = -0.1),
+    )
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(social_trace_retention = 1.0),
+    )
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(social_trace_deposit = 0.0),
+    )
 end
 
 @testset "Evolutionary capability replacement" begin
@@ -332,24 +623,54 @@ end
     inherited = Traffic.inherit_capability_genome(
         parent,
         model,
-        ones(4),
+        ones(5),
         model.replacement_policy,
         Random.Xoshiro(1),
     )
     @test inherited == parent
+
+    social_parent = Traffic.CapabilityGenome(
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        Traffic.SocialHabitFormation(1.1, 0.25, 0.05),
+    )
+    social_model = Traffic.CapabilityModel(
+        social_habit_share = 1.0,
+        replacement_policy = model.replacement_policy,
+    )
+    inherited_social = Traffic.inherit_capability_genome(
+        social_parent,
+        social_model,
+        ones(5),
+        social_model.replacement_policy,
+        Random.Xoshiro(4),
+    )
+    @test inherited_social == social_parent
 
     flip_policy = Traffic.EvolutionaryReplacement(
         capability_mutation_rate = 1.0,
         trait_mutation_scale = 0.0,
     )
     mutated = Traffic.inherit_capability_genome(
-        parent, model, [1.0, 1.1, 1.2, 1.3], flip_policy, Random.Xoshiro(2),
+        parent, model, [1.0, 1.1, 1.2, 1.3, 1.4], flip_policy, Random.Xoshiro(2),
     )
     @test isnothing(mutated.same_direction)
     @test mutated.opposite_direction == 1.1
     @test isnothing(mutated.avoidance)
     @test mutated.habit == 1.3
     @test isnothing(mutated.convention)
+
+    removed_social = Traffic.inherit_capability_genome(
+        social_parent,
+        social_model,
+        ones(5),
+        flip_policy,
+        Random.Xoshiro(5),
+    )
+    @test isnothing(removed_social.social_habit)
 
     disabled_model = Traffic.CapabilityModel(
         habit_share = 0.0,
@@ -362,7 +683,7 @@ end
     disabled_mutation = Traffic.inherit_capability_genome(
         disabled_parent,
         disabled_model,
-        ones(4),
+        ones(5),
         flip_policy,
         Random.Xoshiro(3),
     )
