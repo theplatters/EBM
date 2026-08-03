@@ -23,6 +23,25 @@ The bar is enjoyable only when realized attendance is strictly below `capacity`.
 Agents attend only when their forecast is strictly below `capacity`; equality is
 therefore treated as crowding on both sides of the decision.
 
+## Module structure
+
+`ElFasol.jl` is included by `src/EBM.jl` and exposed as `EBM.ElFasol`:
+
+```text
+components/       participants and predictor-family components
+core/             parameters, attendance history, RNG, and shared resources
+systems/          forecasting, predictor selection, attendance, and scoring
+simulation/       setup and synchronous weekly schedule
+analysis/         logger, diagnostic plots, and model runner
+test/runtests.jl  deterministic predictor, timing, reproducibility, and plot tests
+plots/            checked-in standard figures
+```
+
+Predictor entities and participant entities are deliberately separate. Preserve
+virtual scoring for every predictor, including predictors that were not selected
+in a week, and preserve the synchronous decision boundary when changing the
+schedule.
+
 From the repository root:
 
 ```julia
@@ -70,3 +89,14 @@ The suite writes three figures:
 Each plot is also available independently through `plot_attendance_dynamics`,
 `plot_coordination_diagnostics`, and `plot_predictor_ecology`. Running
 `julia --project=. ElFasol/generate_plots.jl` reproduces the checked-in figures.
+
+## Testing
+
+From the repository root:
+
+```sh
+julia --project=. ElFasol/test/runtests.jl
+```
+
+The complete package suite, including this model, is
+`julia --project=. test/runtests.jl`.

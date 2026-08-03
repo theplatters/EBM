@@ -20,6 +20,27 @@ The implementation includes the paper's central mechanisms:
 See `ECS_ADAPTATION.md` for the mapping to entities, components, resources, systems,
 and the implementation choices needed to make the original model explicit in ECS.
 
+## Module structure
+
+`AssetMarket.jl` is included by `src/EBM.jl` and exposed as
+`EBM.AssetMarket`. The implementation is organized as follows:
+
+```text
+components/       trader and predictor-rule state
+core/             parameters and market resources
+systems/          dividends, descriptors, expectations, clearing, scoring, evolution
+simulation/       setup and ordered market step
+analysis/         logger, plotting, scenario definitions, and scenario plotting
+test/runtests.jl  deterministic equilibrium, accounting, evolution, and plotting tests
+plots/            standard single-run figures
+scenarios/        replicated scenario tables and figures
+```
+
+Keep trader/rule state in focused components, aggregate market state in
+resources, and clearing/evolution logic in systems. The fixed asset supply and
+cash/holding accounting identities are model invariants and should be tested
+after any scheduling change.
+
 ## Running the model
 
 ```julia
@@ -69,3 +90,18 @@ julia --project=. AssetMarket/run_scenarios.jl
 The command writes replicate and summary CSV files plus price-path, metric-comparison,
 and adaptation–volatility figures to `AssetMarket/scenarios/`. The resulting economic
 interpretation is recorded in `SCENARIO_ANALYSIS.md`.
+
+The checked-in scenario generator currently uses five matched replicates,
+1,500 steps, and a 300-step burn-in. Treat those settings as part of the
+reported design when regenerating the scenario artifacts.
+
+## Testing
+
+From the repository root, run the model-local suite with:
+
+```sh
+julia --project=. AssetMarket/test/runtests.jl
+```
+
+The complete package suite, including this model, is
+`julia --project=. test/runtests.jl`.

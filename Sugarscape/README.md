@@ -13,6 +13,20 @@ module entry point, state is split into focused components and resources, model 
 are systems, `ModelParams` and `ModelArgs` define configuration, and `main` returns a
 time-series logger. `run_model` returns the final Ark world for component-level analysis.
 
+## Module structure
+
+`Sugarscape.jl` is included by `src/EBM.jl` and exposed as
+`EBM.Sugarscape`:
+
+```text
+components/       citizen identity, traits, wealth, sex tags, and infection state
+core/             model parameters, landscape, occupancy, RNG, clock, and logger resources
+systems/          growback, movement, disease, lifecycle, and reproduction
+simulation/       world setup and ordered period schedule
+analysis/         snapshots, inequality diagnostics, runner, and plots
+test/runtests.jl  landscape, movement, lifecycle, disease, reproduction, and plot tests
+```
+
 ## Running the model
 
 ```julia
@@ -109,6 +123,17 @@ result.paths
 This writes a final landscape/wealth visualization and a diagnostic figure containing
 wealth, inequality, resource stocks, movement, conflicts, births, infections, and deaths. Run
 `julia --project=. Sugarscape/generate_plots.jl` to generate both figures.
+
+## Testing
+
+From the repository root:
+
+```sh
+julia --project=. Sugarscape/test/runtests.jl
+```
+
+The complete package suite, including this model, is
+`julia --project=. test/runtests.jl`.
 
 ## Extension boundary
 

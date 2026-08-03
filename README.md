@@ -1,118 +1,210 @@
 # EBM
 
-EBM is a work-in-progress package for agent-based modeling with an Entity Component
-System architecture. It contains several scientific and exploratory example models.
+EBM is a research repository for agent-based economic and social models built
+around Entity Component System architecture. The Julia package uses Ark.jl and
+exports four active models; the repository also contains a small Rust/Bevy ECS
+prototype area and Typst research documents.
 
-## SIR model
+## Active Julia models
 
-THe SIR model is a simple model modeling the spread of infectious diseases. The internal logic is directly ported from
-<https://juliadynamics.github.io/Agents.jl/stable/examples/sir/>, the code can be found in <https://github.com/theplatters/EBM/blob/main/src/sir.jl>
+| Module | Location | Subject |
+|---|---|---|
+| `EBM.Traffic` | `src/Traffic/` | Lane convention, habit formation, bounded observation, synchronous multi-speed capabilities, and a sequential reference model |
+| `EBM.AssetMarket` | `AssetMarket/` | Santa Fe artificial stock market with heterogeneous evolving forecast rules |
+| `EBM.ElFasol` | `ElFasol/` | El Farol attendance coordination with competing predictor families |
+| `EBM.Sugarscape` | `Sugarscape/` | Wealth distribution, movement, lifecycle, optional reproduction, and disease |
 
-## Science Model
+`src/EBM.jl` is the package entry point and exports these four modules. Each
+model has its own components, resources, systems, simulation schedule, logger,
+plotting functions, and deterministic tests.
 
-Written in Rust + Bevy
-<https://github.com/theplatters/EBM/blob/main/src/sciencemodel.rs>
+## Setup and validation
 
-## Sugarscape
+From the repository root:
 
-`EBM.Sugarscape` implements the single-resource Sugarscape wealth-distribution model in
-Ark.jl. It supports both shuffled-sequential movement and staged synchronous movement
-with explicit destination-conflict resolution. See
-[the Sugarscape documentation](Sugarscape/README.md) for its ECS mapping, parameters,
-diagnostics, and plotting workflow.
-
-## Traffic visualization
-
-The Traffic module can capture immutable simulation snapshots and render either
-a static state overview or an animation:
-
-```julia
-using EBM, CairoMakie
-
-args = Traffic.ModelArgs(
-    seed = 42,
-    steps = 100,
-    prediction_strategy = Traffic.DecisionAwareStrategy(),
-)
-history = Traffic.traffic_history(args; every = 2)
-
-save("plots/traffic_overview.png", Traffic.plot_traffic(last(history)))
-Traffic.record_traffic(history, "plots/traffic.mp4"; framerate = 12)
+```sh
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using EBM'
+julia --project=. test/runtests.jl
 ```
 
-Cars are drawn individually on the two-lane ring. Color distinguishes travel
-direction, while the side panels summarize lane use, direction, age, habitus,
-and left-lane intent.
+The root test file runs Traffic regressions and includes the focused ElFasol,
+AssetMarket, and Sugarscape suites. Stochastic tests and published experiments
+use explicit seeds.
 
-For `CapabilityModel`, the same interface automatically switches to speed
-coloring and capability-specific diagnostics. A second figure summarizes the
-speed distribution, coordination, replacement pressure, and changing
-capability composition through time. The traffic-response mechanisms default
-to independent 75% entry shares, while habit and convention perception default
-to 50%, so none of the five composition lines is a universal marker:
+The Rust target is currently separate from the Julia package:
 
-```julia
-args = Traffic.ModelArgs(
-    seed = 42,
-    prediction_strategy = Traffic.CapabilityModel(),
-    steps = 100,
-)
-history = Traffic.traffic_history(args; every = 5)
-
-save("plots/capability_state.png", Traffic.plot_traffic(last(history)))
-save("plots/capability_history.png", Traffic.plot_traffic_history(history))
-Traffic.record_traffic(history, "plots/capability_model.mp4"; framerate = 12)
+```sh
+cargo test
+cargo fmt --check
+cargo clippy --all-targets
 ```
 
-See [the capability-model results](notebooks/capability_model_results.md) for
-the bounded-information design, measured scenario, and generated figures.
-The matched [experiments without convention perception](notebooks/no_convention_results.md)
-isolate habit under both entry-draw and evolutionary replacement.
+Cargo presently builds the minimal `src/main.rs` executable. The larger
+`src/sciencemodel.rs` Bevy ECS implementation is a prototype and is not wired
+into that executable.
 
-Capability replacement defaults to independent entry draws. To make capability
-transmission evolutionary, select a surviving parent and configure presence
-and quantitative-trait mutation:
+## Repository map
+
+```text
+src/EBM.jl             Julia package entry point
+src/Traffic/           active Traffic module
+AssetMarket/           active artificial stock-market module
+ElFasol/               active El Farol module
+Sugarscape/            active wealth-distribution module
+test/runtests.jl       complete Julia regression suite
+notebooks/             Traffic experiment scripts and result reports
+plots/                 Traffic figures, animations, CSV data, and artifact audit
+paper/                 Typst paper, abstract, presentation, bibliography, assets
+src/*.rs               Rust prototypes; Cargo entry point is src/main.rs
+src/sir.jl             unexported exploratory SIR prototype
+src/sfcio.jl           unexported exploratory stock-flow prototype
+```
+
+The top-level model directories keep their own generated media and specialized
+documentation. See [AssetMarket](AssetMarket/README.md),
+[ElFasol](ElFasol/README.md), and [Sugarscape](Sugarscape/README.md).
+
+## Traffic models
+
+Traffic is the most extensively studied subsystem. It contains three related
+execution paths:
+
+- synchronous unit-speed traffic with eight occupancy-forecast strategies,
+  including heterogeneous per-car strategy profiles;
+- synchronous multi-speed `CapabilityModel` traffic with bounded local
+  information and collision replacement;
+- an Agents.jl sequential reference model used for matched contrasts.
+
+### Capability semantics
+
+Habit, Convention, and SocialHabit are separate capabilities that influence the
+same lane-response value, LR:
+
+- **Habit** is the Hodgson–Knudsen disposition reinforced by the time a driver
+  has spent on its own realized side.
+- **Convention** is learned from a history of locally observed side choices made
+  by other drivers.
+- **SocialHabit** is learned from a history of locally observed, geometrically
+  vanishing traces deposited by successful drivers.
+
+Capability shares are independent, so a driver may carry any mixture. Static
+replacement redraws capabilities from entry shares. Evolutionary replacement
+inherits stable capabilities and quantitative traits from a surviving driver
+with mutation, while acquired dispositions reset for the newborn.
 
 ```julia
-evolutionary = Traffic.CapabilityModel(
-    replacement_policy = Traffic.EvolutionaryReplacement(
+using EBM
+
+model = EBM.Traffic.CapabilityModel(
+    habit_share = 0.5,
+    convention_share = 0.5,
+    social_habit_share = 0.5,
+    replacement_policy = EBM.Traffic.EvolutionaryReplacement(
         capability_mutation_rate = 0.02,
         trait_mutation_scale = 0.05,
     ),
 )
-args = Traffic.ModelArgs(seed = 42, prediction_strategy = evolutionary)
+
+args = EBM.Traffic.ModelArgs(
+    seed = 42,
+    params = EBM.Traffic.ModelParams(lookahead = 20),
+    prediction_strategy = model,
+    steps = 5_000,
+)
+logger = EBM.Traffic.main(args)
 ```
 
-The default simulation length is 300 ticks. Evolution preserves the crashed
-car's travel direction, inherits only stable capabilities from the selected
-survivor, and resets newborn habitus and convention confidence.
+The low-level API defaults remain suitable for short interactive runs
+(`ModelArgs.steps == 300`, `ModelParams.lookahead == 60`). Current capability
+experiments explicitly use 5,000 ticks, a 1,000-tick burn-in, and lookahead 20.
 
-See [the strategy analysis](notebooks/strategy_analysis.md) for a paired-seed
-comparison of survival, replacements, lane switching, density robustness, and
-behavioral-weight sensitivity across all eight occupancy strategies. For a
-current-information-only improvement over Naive, use
-`Traffic.TwoFrameNaiveStrategy()`: it accepts a lane change only when the
-current and one-step-advanced decision frames agree. Recreate
-the individual-car examples with:
+### Traffic snapshots and visualization
 
-```bash
-julia --project=. notebooks/generate_traffic_examples.jl
-```
-
-Cars can also use different strategies in the same world. Their forecasts are
-composed into one shared predicted-occupancy field, and collision replacements
-inherit strategy and direction so the population mix does not drift:
+Traffic can capture immutable snapshots, plot a state, plot analytical history,
+or record an animation:
 
 ```julia
-mix = Traffic.HeterogeneousStrategy(
-    Traffic.DecisionAwareStrategy() => 0.50,
-    Traffic.TwoFrameNaiveStrategy() => 0.25,
-    Traffic.NaiveStrategy() => 0.25,
+using EBM, CairoMakie
+
+args = EBM.Traffic.ModelArgs(
+    seed = 42,
+    prediction_strategy = EBM.Traffic.DecisionAwareStrategy(),
+    steps = 100,
 )
-args = Traffic.ModelArgs(seed = 42, prediction_strategy = mix, steps = 150)
-history = Traffic.traffic_history(args; every = 5)
-save("plots/heterogeneous.png", Traffic.plot_traffic(last(history); color_by = :strategy))
+history = EBM.Traffic.traffic_history(args; every = 2)
+
+save("plots/traffic_overview.png", EBM.Traffic.plot_traffic(last(history)))
+save("plots/traffic_history.png", EBM.Traffic.plot_traffic_history(history))
+EBM.Traffic.record_traffic(history, "plots/traffic.mp4"; framerate = 12)
 ```
 
-See [the heterogeneous-strategy report](notebooks/heterogeneous_strategy_report.md)
-for a 50-replicate comparison and strategy-colored scenario visualization.
+Capability histories add speed, convention, acquired disposition, replacement
+pressure, and capability-composition diagnostics. Heterogeneous occupancy
+strategies can be displayed with `color_by = :strategy`.
+
+### Traffic experiments and reports
+
+The current studies are reproducible Julia scripts under `notebooks/`:
+
+| Study | Generator | Report |
+|---|---|---|
+| Habit, Convention, SocialHabit, mixtures, replacement, and sequential contrast | `run_social_habit_experiment.jl` | [social_habit_experiments.md](notebooks/social_habit_experiments.md) |
+| Aggregated mixture dynamics with mean ± SD | `run_mixture_ensemble_dynamics.jl` | [social_habit_experiments.md](notebooks/social_habit_experiments.md) |
+| Speed-choice sensitivity | `run_speed_sensitivity_experiment.jl` | [speed_sensitivity_results.md](notebooks/speed_sensitivity_results.md) |
+| Capability mechanism diagnostics | `generate_capability_scenario.jl` | [capability_model_results.md](notebooks/capability_model_results.md) |
+| No-convention comparison | `generate_no_convention_experiments.jl` | [no_convention_results.md](notebooks/no_convention_results.md) |
+| Heterogeneous occupancy strategies | `generate_heterogeneous_strategy.jl` | [heterogeneous_strategy_report.md](notebooks/heterogeneous_strategy_report.md) |
+| Eight-strategy benchmark | `strategy_analysis.jl` | [strategy_analysis.md](notebooks/strategy_analysis.md) |
+
+For example:
+
+```sh
+julia --project=. -t auto notebooks/run_social_habit_experiment.jl
+julia --project=. -t auto notebooks/run_mixture_ensemble_dynamics.jl
+julia --project=. -t auto notebooks/run_speed_sensitivity_experiment.jl
+```
+
+These studies can be expensive: the principal comparisons use 30 paired seeds
+and 5,000 ticks. Most scripts accept `TRAFFIC_REPLICATES`, `TRAFFIC_STEPS`,
+`TRAFFIC_BURN_IN`, `TRAFFIC_LOOKAHEAD`, and `TRAFFIC_OUTPUT_DIR` overrides.
+The generated-artifact inventory and relic policy are recorded in
+[plots/README.md](plots/README.md).
+
+## Other model entry points
+
+AssetMarket, ElFasol, and Sugarscape share the `ModelParams`, `ModelArgs`,
+`setup_world`, `step!`, `run_model`, and `main` interface. `run_model` returns
+the final Ark world; `main` returns the aggregate logger. Traffic exposes
+`setup_world`, `step!`, and `main`, with `traffic_history` providing the
+snapshot-oriented runner used by its plotting tools. Each model also exposes a
+plotting suite:
+
+```julia
+using EBM
+
+bar = EBM.ElFasol.main(EBM.ElFasol.ModelArgs(seed = 2026, steps = 500))
+market = EBM.AssetMarket.main(EBM.AssetMarket.ModelArgs(seed = 2026, steps = 2_500))
+sugar = EBM.Sugarscape.main(EBM.Sugarscape.ModelArgs(seed = 2026, steps = 250))
+```
+
+Regenerate their checked-in figures with:
+
+```sh
+julia --project=. ElFasol/generate_plots.jl
+julia --project=. AssetMarket/generate_plots.jl
+julia --project=. Sugarscape/generate_plots.jl
+julia --project=. AssetMarket/run_scenarios.jl
+```
+
+## Paper
+
+The manuscript, abstract, and presentation are maintained as Typst sources:
+
+```sh
+typst compile paper/main.typ
+typst compile paper/abstract.typ
+typst compile paper/presentation/presentation.typ
+```
+
+Generated PDFs are stored beside their corresponding Typst source.
