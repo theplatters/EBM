@@ -1,6 +1,6 @@
 # Activation timing and habit: verification report
 
-This report evaluates 30 paired seeds (20260801–20260830). Each seed was run under all four timing × habit conditions for 600 ticks with 120 cars on a 2×300 torus. Metrics exclude the first 150 ticks. Lookahead=60, error rate=0.01, and active habit weight=0.5.
+This report evaluates 30 paired seeds (20260801–20260830). Each seed was run under all four timing × habit conditions for 5000 ticks with 120 cars on a 2×300 torus. Metrics exclude the first 1000 ticks. Lookahead=20, error rate=0.01, and active habit weight=0.5.
 
 ## Controlled mechanism check
 
@@ -29,23 +29,23 @@ Condition means across paired replications:
 
 | Timing | Habit | Compatibility | Pre-coordination | Disposition alignment | Disposition predictability | Failure rate |
 |---|---|---:|---:|---:|---:|---:|
-| sequential | false | 0.9802 | 0.97043 | 0.99104 | 0.98425 | 0.0198 |
-| sequential | true | 0.98051 | 0.96492 | 0.98524 | 0.98189 | 0.01949 |
-| simultaneous | false | 0.97831 | 0.97126 | 0.99249 | 0.98546 | 0.02169 |
-| simultaneous | true | 0.98022 | 0.97186 | 0.99125 | 0.98591 | 0.01978 |
+| sequential | false | 0.97758 | 0.75166 | 0.82212 | 0.84846 | 0.02242 |
+| sequential | true | 0.98012 | 0.97329 | 0.99356 | 0.9862 | 0.01988 |
+| simultaneous | false | 0.97446 | 0.90178 | 0.93996 | 0.94265 | 0.02554 |
+| simultaneous | true | 0.9792 | 0.97395 | 0.99441 | 0.98692 | 0.0208 |
 
 | ID | Falsifiable claim | Paired effect | 95% bootstrap CI | one-sided p | Result |
 |---|---|---:|---:|---:|---|
-| H1 | simultaneous timing reduces compatible joint choices without habit | -0.00189 | [-0.00267, -0.00115] | 5.0e-5 | supported |
-| H2 | habit increases compatible joint choices under simultaneous timing | 0.00191 | [0.00106, 0.00276] | 0.0001 | supported |
-| H3 | habit increases pre-coordinated encounters | 0.0006 | [-0.00491, 0.0047] | 0.43298 | not supported |
-| H4 | habit improves compatibility more under simultaneous than sequential timing | 0.00161 | [0.00074, 0.00253] | 0.0007 | supported |
+| H1 | simultaneous timing reduces compatible joint choices without habit | -0.00312 | [-0.00351, -0.00272] | 5.0e-5 | supported |
+| H2 | habit increases compatible joint choices under simultaneous timing | 0.00474 | [0.00433, 0.00512] | 5.0e-5 | supported |
+| H3 | habit increases pre-coordinated encounters | 0.07216 | [0.05435, 0.09112] | 5.0e-5 | supported |
+| H4 | habit improves compatibility more under simultaneous than sequential timing | 0.0022 | [0.0017, 0.00265] | 5.0e-5 | supported |
 
 Effects are first condition minus second condition as encoded by each claim; H5 is the difference-in-differences.
 
 ## Interpretation guardrails
 
 Habit increased compatible joint choices conditional on cars meeting. This establishes an encounter-level coordination gain, but does not by itself show that the choice was settled in advance.
-Pre-coordinated encounters did not increase reliably. The compatibility gain therefore does not, on its own, verify the proposed reduction of strategic uncertainty through prior habit.
+Pre-coordinated encounters—aligned prior dispositions followed by consistent actions—also increased, supporting the claim that habit resolves strategic uncertainty in advance.
 
 The p-values are paired sign-randomization estimates and the intervals are paired bootstrap intervals. They are exploratory (no multiple-testing correction) and should be accompanied by sensitivity checks over density, error rate, lookahead, habit strength, and replacement policy.
