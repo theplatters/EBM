@@ -19,7 +19,7 @@
   author: "Franz Scharnreitner BSc.",
   date: datetime(year: 2026, month: 7, day: 25),
   abstract: [
-    Agent-based models are commonly implemented around agent objects that combine identity, state, and behavior. Although this organization mirrors the intuitive description of autonomous agents, it makes predefined agent types the principal unit of model construction and can obscure the population-level processes through which agents interact. This paper examines Entity Component Systems (ECS) as an alternative architecture for agent-based modeling. ECS represents agents as dynamically composed sets of state components and behavior as systems operating on all entities with the required components. We develop three connected arguments: ECS supports structural rather than merely parametric heterogeneity; it aligns executable model structure with population-level processes; and it exposes the data dependencies required for simultaneous and parallel interaction. These arguments are developed through an ECS reconstruction and extension of Hodgson and Knudsen's traffic-convention model and a comparison with an agent-centered implementation. A secondary engineering evaluation considers cache locality, multicore scaling, and the prospects for GPU execution. The paper positions ECS not only as a computational optimization, but as an alternative way of specifying agent-based models.
+    Agent-based models are commonly implemented around agent objects that combine identity, state, and behavior. Although this organization mirrors the intuitive description of autonomous agents, it makes predefined agent types the principal unit of model construction and can obscure the population-level processes through which agents interact. This paper examines Entity Component Systems (ECS) as an alternative architecture for agent-based modeling along three analytically distinct dimensions: the composition of agent state, the organization of behavior, and the semantics of the execution schedule. ECS connects these dimensions through one vocabulary: component signatures define agent structure, queries select the participants in population processes, and system dependencies constrain schedules and update visibility. We compare ECS with an idiomatic agent-centered implementation of the same model to examine how each architecture represents changing roles, organizes shared mechanisms, and declares the conditions under which alternative execution orders preserve outcomes. The argument is developed through a reconstruction and extension of the single-resource Sugarscape wealth-distribution model, including optional reproduction and disease. A secondary engineering evaluation considers cache locality, multicore scaling, and the prospects for GPU execution without treating storage performance as a separate research question. The paper positions ECS not only as a computational optimization, but as an architecture for scientific model specification.
   ],
   bibliography: bibliography("Econ.bib"),
   figure-index: (enabled: true),
@@ -33,14 +33,17 @@
 
 = Introduction
 
-Consider Hodgson and Knudsen's model of traffic-convention formation.
-Drivers moving in opposite directions on a two-lane ring choose a side using only a bounded view ahead.
-Their choices combine responses to traffic moving in the same and opposite directions, near-field collision avoidance, and an age-dependent habit toward one side.
-Collisions remove drivers and thereby select among their fixed dispositions, while surviving drivers reinforce the side on which they have travelled; repeated local decisions can consequently stabilize a population-wide left- or right-driving convention @hodgsonEconomicsShadowsDarwin2006.
-Our extension makes same-direction response, opposite-direction response, avoidance, habit formation, local convention perception, and imitation through successful-driver traces independently composable capabilities.
-Drivers may possess any combination of them, and evolutionary replacement can change the distribution of those combinations within the population.
-Because these capabilities overlap, they do not form a natural taxonomy of driver types.
-This modeling choice exposes a broader architectural question: should an agent be implemented as an object that owns its state and behavior, or as a composition of capabilities participating in population-level processes?
+Consider the single-resource Sugarscape wealth-distribution model. Citizens
+with heterogeneous vision, metabolism, endowment, and lifespan move across a
+regenerating landscape, harvest sugar, accumulate wealth, and die from
+starvation or old age @epsteinGrowingArtificialSocieties1996. Optional
+reproduction and disease introduce roles that overlap and change over time: a
+citizen may be female or male, fertile or infertile, susceptible, infected, or
+immune, and several of these classifications may apply simultaneously. Some
+roles require persistent state, while others are derived from age, wealth, and
+local relationships rather than belonging to a fixed taxonomy of citizen
+types.
+This modeling choice exposes an architectural chain: how agent state is composed, how population processes select and transform that state, and how those processes are scheduled. The resulting organization may also affect how simulation data are laid out and executed, but that engineering consequence is analytically secondary to the model specification.
 
 ABMs explain macro-level regularities as the emergent result of heterogeneous agents and their interactions.
 In most implementations, the scientific agent is mapped onto a software object that combines identity, state, and behavior.
@@ -51,9 +54,13 @@ Entities supply identity, components represent state and capabilities, and syste
 
 This paper investigates whether that architectural change is useful for scientific ABMs and how it manifests in concrete modeling choices and practices.
 
-== What Makes an Agent?//(Motivation)
+== Why architecture matters
 
-What, exactly, is an agent? In a computational model, it may be a person, a household, a firm, a bank, a government—or even a car. What these otherwise disparate entities share is that the model attributes state and actions to them: they consume, produce, lend, tax, or move. How those actions are represented, however, varies across modeling traditions. In standard CGE models, agents are typically aggregate categories whose behavior is encoded in systems of demand, supply, and equilibrium equations. Microsimulation models represent persons or households individually but commonly process them using shared accounting or behavioral rules, often without direct interaction. Agent-based models go further by representing agents as individual computational entities whose states evolve through their actions and interactions.
+In a computational model, an agent may be a person, household, firm, bank,
+government, or artificial citizen. These entities differ substantively, but an ABM attributes
+individual state and actions to each of them and lets those states evolve
+through action and interaction. The software architecture determines how that
+scientific description is translated into executable state and processes.
 
 This explicit representation makes ABMs particularly well suited to modeling heterogeneous populations. In practice, however, heterogeneity is often encoded either parametrically,
 through different values of a shared set of attributes, or categorically, through predefined agent types. In the following sections, we distinguish a third form, which we call
@@ -61,7 +68,7 @@ structural heterogeneity: agents may differ in the state variables and capabilit
 supports this form of heterogeneity by constructing agents through the composition of components.
 
 Interactions are rarely the behavior of one agent alone. They are relational processes through which agents jointly produce population-level dynamics and, potentially, nonlinear feedback. Yet many ABM frameworks organize execution around methods invoked on one agent at a time. This can make a process involving several agents appear to belong to a single participant, obscuring who participates and when the resulting state changes take effect.
-The distinction becomes particularly important for simultaneous interactions, which require separate phases for observation, intention formation, conflict resolution, and commitment.
+The distinction becomes particularly important for simultaneous interactions, which require separate phases for observation, intention formation, conflict resolution, and state update.
 
 These semantic issues are closely connected to parallel execution. Specialized frameworks such as FLAME GPU demonstrate that agent-centered models can be executed efficiently in parallel: agents of the same type and state execute agent functions concurrently on the GPU. Safe interaction is achieved through explicit messages, while layers or dependency graphs determine the
 order in which functions execute. Parallelism therefore remains possible, but requires a comparatively constrained execution model in which agent types, states, messages, and dependencies must be specified explicitly. (FLAME GPU documentation (https://docs.flamegpu.com/guide/creating-a-model/index.html))
@@ -70,76 +77,95 @@ ECS offers a different organizing principle. Even in a structurally heterogeneou
 
 == What Changes with ECS?
 
-We examine ECS as both a modeling abstraction and an execution architecture for ABMs. The investigation is organized around four questions:
+We examine ECS as a modeling architecture for ABMs. Three dimensions structure the comparison. They are separated analytically because each supports a different claim, but ECS derives its architectural force from connecting them.
 
-+ *RQ1 — Compositional heterogeneity:* How does ECS represent agents with overlapping and dynamically changing component signatures that encode behavioral capabilities, compared with parametric and type-based representations?
-+ *RQ2 — System-centered modeling:* What is gained and lost when behavior is expressed as systems operating on selected populations rather than as methods owned by individual agents?
-+ *RQ3 — Interaction semantics:* How can system dependencies express the observation, intention, resolution, and commitment stages of simultaneous interactions, and what opportunities do they provide for parallel execution?
-+ *RQ4 — Execution:* Under which workloads do component-oriented data layouts improve cache locality and multicore scaling, and what constraints do they impose on GPU execution?
+#table(
+  columns: (1.35fr, 1.55fr, 2.1fr),
+  inset: 6pt,
+  align: (left, left, left),
+  table.header([*Dimension*], [*Modeling question*], [*ECS commitment*]),
+  [State composition],
+  [What state and capabilities constitute an agent?],
+  [An entity's component signature defines its current schema],
+
+  [Behavior organization],
+  [Where are shared transition laws expressed?],
+  [Systems transform populations selected by component queries],
+
+  [Schedule semantics],
+  [Which state is visible to each process, when do updates take effect, and which execution orders are equivalent?],
+  [System dependencies and phase boundaries specify ordering, visibility, and admissible reorderings],
+)
+
+State composition and behavior organization concern the executable description of the model. Schedule semantics determines the transition that description implements. The central thesis is not that these dimensions collapse into one another, but that ECS gives them a common interface: the same component requirements that constitute a role in the scientific model select the population processed by a system, while declared dependencies specify when those transformations may observe and modify state. Component-oriented storage can exploit this information, but its performance is evaluated as a secondary engineering consequence.
+
+The investigation is organized around three questions:
+
++ *RQ1 — State composition:* How does ECS affect the representation and modification of overlapping and changing agent roles or capabilities relative to an idiomatic agent-centered implementation of the same model?
++ *RQ2 — Behavior organization:* How does organizing behavior as systems affect the locality, reuse, substitutability, and inspectability of population-level mechanisms relative to agent-centered activation?
++ *RQ3 — Schedule semantics:* How do explicit system dependencies and phase boundaries specify information visibility and update timing, and under what declared conditions do alternative execution orders preserve model outcomes?
 
 Our contribution is threefold.
-Conceptually, we distinguish parametric, type-based, and compositional heterogeneity and map the principal concepts of ABM to entities, components, queries, systems, and resources.
-Methodologically, we reconstruct a classical economic ABM in both agent-centered and ECS architectures, extend it with overlapping and dynamically changing component signatures that encode behavioral capabilities, and formulate simultaneous interaction as a staged process
-derived from system dependencies.
-Empirically, we compare the architectures across relevant workloads, measuring cache behavior and multicore scaling while assessing their suitability for GPU execution.
+Conceptually, we distinguish state composition, behavior organization, and schedule semantics; within the first dimension, we distinguish parametric, type-based, and compositional heterogeneity and map the principal concepts of ABM to entities, components, queries, systems, and resources.
+Methodologically, we reconstruct the same classical economic ABM in idiomatic agent-centered and ECS architectures, extend it with overlapping and changing behavioral capabilities, and formulate simultaneous interaction as a staged process derived from explicit system dependencies.
+Empirically, we use controlled architecture and schedule treatments to assess the three questions. A separate engineering evaluation measures cache behavior and multicore scaling while assessing the suitability of component-oriented execution for GPUs.
 
-= Agent-Centered Architectures and Their Commitments
+= Conceptual Foundations <sec:foundations>
 
-== The agent object convention
+This chapter defines two concepts used for both architectures: the forms of
+heterogeneity present in a population and the relation among world states,
+transitions, schedules, trajectories, and model time. The definitions do not
+presume where behavior is located or how state is stored.
 
-A common implementation of an ABM assigns each scientific agent a corresponding software object.
-The object has an identity and a named type or record structure, while its fields hold both externally visible state, such as position or wealth, and internal state, such as beliefs, preferences, or memory.
-Behavior is associated with that representation through methods selected by inheritance, dispatch, or explicit calls.
-We call this organization the *agent object convention*.
-Here, “object” is used in the broad architectural sense of a state-bearing software representation; it does not require a particular object-oriented language or an inheritance hierarchy.
-
-Execution under this convention is typically organized by a scheduler.
-At each tick or event, the scheduler selects an agent and invokes a step function or event handler associated with its representation.
-During that invocation, the agent may inspect its own fields, query nearby agents or shared model state, choose an action, and mutate itself, another agent, or the environment.
-The population-level transition is consequently assembled from repeated invocations of agent-level behavior.
-Toolkits differ substantially in how they order these invocations: they may use fixed or randomized activation, simultaneous-update buffers, event queues, multiple agent types, or user-defined schedules @abarAgentBasedModelling2017.
-
-This organization makes the agent object the principal unit of both description and execution.
-The state belonging to an agent is determined by its record or type, behavior is approached by asking what that agent does during its activation, and an interaction commonly enters the implementation through one participating agent's method.
-These choices are architectural commitments rather than requirements of agent-based modeling itself.
-The same scientific model could instead store state separately from identity and express behavior as transformations over every agent satisfying particular conditions.
-
-The comparison in this paper is therefore between *agent-centered* and *system-centered* architectures, not between Julia and another language, nor between object-oriented and non-object-oriented programming.
-Agent-centered frameworks can support composition, custom activation, event-based execution, buffered updates, and efficient internal storage; an ECS implementation can likewise expose object-like interfaces.
-The distinction concerns where the executable model locates state and behavior.
-Our agent-centered reference is consequently intended to be idiomatic rather than a deliberately weak inheritance-based baseline.
-
-== Three kinds of heterogeneity
+== Three kinds of heterogeneity <sec:heterogeneity>
 
 Parametric, type-based, and compositional heterogeneity are distinct but not
 mutually exclusive dimensions along which agents may differ. A model may
-combine any or all of them. Let $I_t$ be the finite, nonempty set of agents
-present at time $t$ and let $N_t=abs(I_t)$. This notation permits entry, exit,
-and replacement; neither population size nor agent identifiers need remain
-fixed. The traffic model provides the running example: drivers have a travel
-direction, differ in component composition, and carry component-specific
-sensitivity values.
+combine any or all of them. Let $cal(W)$ be the set of admissible complete
+world states. For $W in cal(W)$, let $I(W)$ be the finite, nonempty set of
+agents present in that state and let $N(W)=abs(I(W))$. This formulation permits
+entry, exit, and replacement; neither population size nor agent identifiers
+need remain fixed. It also avoids assigning a clock before the model's
+transition and scheduling semantics have been specified. Sugarscape provides
+the running example: citizens carry heterogeneous vision and metabolism,
+occupy sex and infection roles, and enter or leave the population through
+replacement, reproduction, and death.
 
-For every $i in I_t$, let $Theta_t (i)$ denote the agent's current parameter, i.e $ Theta_t: I_t arrow bold(Theta) $ is the map that assigns every element a parameter space of the universe $bold(Theta)$
-space and let $theta_t (i) in Theta_t (i)$ denote its parameter vector. The
-space $Theta_t (i)$ is indexed by time and need not remain fixed. For any
-nonempty group $J subset.eq I_t$ whose members share a current parameter space,
-$Theta_t (i)=Theta$ for every $i in J$, the population exhibits *parametric
-heterogeneity* within $J$ if $theta_t (i) != theta_t (j)$ for some $i,j in J$.
-Drivers with the same component signature but different sensitivity
-coefficients provide an example.
+A complete $W$ contains the agent descriptors defined below together with the
+environment and all remaining model state. Where a scheduled transition uses
+randomness, the current state of the seeded model RNG is included as well;
+conditional on that complete state and a fixed schedule, the successor is
+determinate.
+
+For every $i in I(W)$, let $X_W (i)$ denote the agent's admissible state space
+in $W$ and let $x_W (i) in X_W (i)$ be its current state. Thus
+$X_W: I(W) arrow bold(X)$ maps agents into a universe $bold(X)$ of admissible
+state spaces. The state space is indexed by the complete world because an
+agent's schema need not remain fixed and may differ between alternative states
+at the same model time. It may include dynamic variables such as position,
+speed, or memory as well as more stable behavioral traits.
+
+To distinguish those roles, for each admissible state space $X$ let
+$p_X: X arrow Theta_X$ project an agent state onto the scientifically designated
+parameter or stable-trait coordinates. For any nonempty group
+$J subset.eq I(W)$ whose members share $X_W (i)=X$, the population exhibits
+*parametric heterogeneity* within $J$ if
+$p_X (x_W (i)) != p_X (x_W (j))$ for some $i,j in J$. Differences in ordinary
+dynamic state, such as position or acquired memory, are state heterogeneity but
+not parametric heterogeneity under this definition. Sugarscape citizens with
+the same component signature but different vision or metabolism provide an
+example of parametric heterogeneity.
 
 A population exhibits *type-based heterogeneity* when a nominal classification
-$tau_t: I_t arrow cal(T)$ assigns every agent to one member of a predefined,
-exhaustive type set $cal(T)$, and $tau_t (i) != tau_t (j)$ for some
-$i,j in I_t$. The classification induces the pairwise-disjoint partition
-$I_t = union_(tau in cal(T)) I_t^tau$, where
-$I_t^tau = {i in I_t | tau_t (i)=tau}$. A type may determine an admissible
-state space or transition law, but parameter values and component signatures
-may still vary within it. For example, the traffic model's two directions
-could be encoded as the nominal types `ClockwiseDriver` and
-`CounterclockwiseDriver`. The case-study implementations instead store
-direction without introducing nominal driver subtypes; the counterfactual
+$tau_W: I(W) arrow cal(T)$ assigns every agent to one member of a predefined,
+exhaustive type set $cal(T)$, and $tau_W (i) != tau_W (j)$ for some
+$i,j in I(W)$. The classification induces the pairwise-disjoint partition
+$I(W) = union_(tau in cal(T)) I_W^tau$, where
+$I_W^tau = {i in I(W) | tau_W (i)=tau}$. A type may determine an admissible
+state space or transition law, but state values and component signatures
+may still vary within it. For example, Sugarscape's reproductive sexes could be
+encoded as the nominal types `FemaleCitizen` and `MaleCitizen`. The ECS
+implementation instead uses exclusive zero-sized tag components; this contrast
 illustrates that type-based heterogeneity is a property of the model's nominal
 classification, not of a particular programming language or an inheritance
 hierarchy.
@@ -151,491 +177,355 @@ component types $c_1, dots, c_m in cal(U)$. Define the full component-signature
 function and its structural projection by
 
 $
-  kappa_t: I_t arrow cal(P)(cal(U)), quad
-  kappa_t^(upright("str")) (i) =
-  kappa_t (i) inter {c_1, dots, c_m}.
+  kappa_W: I(W) arrow cal(P)(cal(U)), quad
+  kappa_W^(upright("str")) (i) =
+  kappa_W (i) inter {c_1, dots, c_m}.
 $
 
-Thus $kappa_t (i)$ is the complete implementation signature, whereas
-$kappa_t^(upright("str")) (i)$ is the signature used to analyze compositional
+Thus $kappa_W (i)$ is the complete implementation signature, whereas
+$kappa_W^(upright("str")) (i)$ is the signature used to analyze compositional
 heterogeneity. Mandatory components may occur among $c_1, dots, c_m$ but cannot by
 themselves generate heterogeneity. Transient buffers used only to implement a
-schedule remain in $kappa_t (i)$ so systems can query them, but are omitted
+schedule remain in $kappa_W (i)$ so systems can query them, but are omitted
 from that list unless their presence has a substantive interpretation.
 
-At this level, a component is only a tag: membership of $c$ in $kappa_t (i)$
-records that component $c$ is present. Section 2.2 assigns neither a data
-domain nor a parameter block to that tag. This keeps the general definition of
+At this level, a component is only a tag: membership of $c$ in $kappa_W (i)$
+records that component $c$ is present. This definition assigns neither a data
+domain nor a parameter block to that tag. It therefore keeps the definition of
 compositional heterogeneity independent of the ECS storage representation
-introduced in Section 3.
+introduced later.
 
 For $k in {1, dots, m}$, define the component-incidence indicator
 
 $
-  chi_(i k) (t) = cases(
-    1 & "if " c_k in kappa_t^(upright("str")) (i),
+  chi_(i k) (W) = cases(
+    1 & "if " c_k in kappa_W^(upright("str")) (i),
     0 & "otherwise",
   ),
 $
 
 and collect the indicators in
 
-$ chi_i (t) = (chi_(i 1) (t), dots, chi_(i m) (t)) in {0,1}^m. $
+$ chi_i (W) = (chi_(i 1) (W), dots, chi_(i m) (W)) in {0,1}^m. $
 
-After fixing any ordering of $I_t$, the incidence matrix
-$X_t=(chi_(i k) (t)) in {0,1}^(N_t times m)$ describes the population's
-component composition. For $x in {0,1}^m$, the empirical distribution of
+After fixing any ordering of $I(W)$, the incidence matrix
+$bold(C)(W)=(chi_(i k) (W)) in {0,1}^(N(W) times m)$ describes the population's
+component composition. For $z in {0,1}^m$, the empirical distribution of
 structural signatures is
 
-$ pi_t (x) = 1/N_t abs({i in I_t | chi_i (t)=x}). $
+$ pi_W (z) = 1/N(W) abs({i in I(W) | chi_i (W)=z}). $
 
 The population is compositionally heterogeneous precisely when
-$kappa_t^(upright("str")) (i) != kappa_t^(upright("str")) (j)$ for some
-$i,j in I_t$, or equivalently when
-$abs({x in {0,1}^m | pi_t (x)>0})>1$.
+$kappa_W^(upright("str")) (i) != kappa_W^(upright("str")) (j)$ for some
+$i,j in I(W)$, or equivalently when
+$abs({z in {0,1}^m | pi_W (z)>0})>1$.
 
 
-The three dimensions can be described jointly by associating agent $i$ with
+The three architecture-relevant dimensions can be described jointly by
+associating agent $i$ with
 
 $
-  (tau_t (i), kappa_t (i), Theta_t (i), theta_t (i)), quad
-  theta_t (i) in Theta_t (i).
+  a_W (i) = (tau_W (i), kappa_W (i), X_W (i), x_W (i)), quad
+  x_W (i) in X_W (i).
 $
 
+This is not an exhaustive taxonomy of all ways agents may differ. In
+particular, agents with the same type, component signature, and parameter
+coordinates may still occupy different dynamic states.
 
-Compositional heterogeneity is *dynamic* if a persistent agent can satisfy
-$kappa_(t+1)^(upright("str")) (i) != kappa_t^(upright("str")) (i)$, or if
-entry, exit, and replacement change the population distribution so that
-$pi_(t+1) != pi_t$. Heterogeneity itself is not an ECS innovation. The claim
+
+Given two states connected by an admissible model transition $W arrow.r W'$,
+compositional heterogeneity is *dynamic* if a persistent agent
+$i in I(W) inter I(W')$ satisfies
+$kappa_(W')^(upright("str")) (i) != kappa_W^(upright("str")) (i)$, or if entry,
+exit, and replacement change the population distribution so that
+$pi_(W') != pi_W$. Heterogeneity itself is not an ECS innovation. The claim
 here is that ECS makes component incidence and changes to it explicit without
 requiring an exhaustive taxonomy of combination-specific agent classes.
 
 
-== Behavior located in agents
+== Transitions, schedules, trajectories, and time <sec:time>
 
-The preceding forms of heterogeneity describe what may differ between agents;
-they do not yet specify where the corresponding behavior is implemented. With
-the notation of Section 2.2, the relevant descriptor of agent $i$ is
+The state-indexed definitions above do not assume discrete ticks, synchronous
+updates, or any other time model. An admissible transition relation
+$arrow.r subset.eq cal(W) times cal(W)$ states which world-state changes the
+model permits. A schedule $Sigma$ selects and composes agent activations or
+systems and thereby induces a transition operator
+$T_Sigma: cal(W) arrow cal(W)$ satisfying $W arrow.r T_Sigma(W)$.
 
-$
-  a_t (i) =
-  (tau_t (i), kappa_t (i), Theta_t (i), theta_t (i)), quad
-  theta_t (i) in Theta_t (i).
-$
+A simulation run is a trajectory
 
-Let $W$ denote a complete world state containing these agent descriptors,
-all remaining model state, and the environment, and let $N_i (W)$ be the
-information about that state made available to agent $i$. For an arbitrary
-current state $W$, write $tau_W (i)$, $kappa_W (i)$, and $theta_W (i)$ for the
-corresponding entries of agent $i$'s descriptor in that state; at $W=W_t$ they
-agree with the time-indexed quantities
-above. In an agent-centered architecture, activating $i$ invokes an agent-level
-transition operator
+$ omega = (W_0, W_1, dots), quad W_(n+1)=T_(Sigma_n)(W_n). $
+
+Here $n$ is a transition index, not yet scientific or physical time. A model
+clock is a map $upright("clock"): cal(W) arrow bb(T)$ into a totally ordered
+time domain. Along a trajectory, $t_n=upright("clock")(W_n)$. Only after fixing
+that trajectory may state-indexed objects be abbreviated by
 
 $
-  F_i (W) = f_(tau_W (i)) (
-    kappa_W (i), theta_W (i), N_i (W), W
+  I_n=I(W_n), quad x_n(i)=x_(W_n)(i), quad
+  kappa_n(i)=kappa_(W_n)(i), quad pi_n=pi_(W_n).
+$
+
+If each application of a complete schedule advances one discrete tick, then
+$t=n$ and the familiar notation $W_t$, $I_t$, and $x_t(i)$ is valid shorthand
+along that run. Event-based models may instead have irregular $t_n$, including
+several transitions at the same clock time.
+
+A complete transition may contain ordered phases. For
+$p in {0,dots,P}$, write $W_(n,p)$ for the state after phase $p$, with
+
+$ W_(n,0)=W_n, quad W_(n,P)=W_(n+1,0)=W_(n+1). $
+
+The phase index records semantic visibility and update boundaries, not elapsed model
+time: several phases may share the same clock value. A further local index,
+such as a movement micro-step, should be introduced only when the scientific
+mechanism requires it. This separation lets the same state and transition
+definitions support sequential, simultaneous, phased, and event-based models.
+
+Simultaneity, concurrency, and parallelism describe different properties of a
+model and its execution. *Simultaneous model semantics* means that a designated
+set of decisions is formed from a common information state and that no
+participant observes another participant's decision as an already committed
+change. *Concurrent execution* means that computations are independently
+schedulable and may be interleaved without changing that process. *Parallel
+execution* occurs when such work is performed at the same time on several
+hardware execution units. A simultaneous interaction may be evaluated
+serially, and a sequential model may use parallelism within an individual
+activation.
+
+Let $K_(n,p)$ be the processes assigned to phase $p$ of transition $n$, and
+let $P_k$ produce the proposed update of process $k$. Under simultaneous phase
+semantics, the phase-entry state is held fixed while every proposal is formed,
+
+$
+  delta_(k,n,p) = P_k(W_(n,p)), quad k in K_(n,p),
+$
+
+and a joint resolution rule defines the next visible state,
+
+$
+  W_(n,p+1) = upright("resolve")_(n,p) (
+    W_(n,p), (delta_(k,n,p))_(k in K_(n,p))
   ).
 $
 
-The right-hand side is understood to return an updated world state. The type
-$tau_W (i)$ may select the implementation by dispatch, $kappa_W (i)$ may
-select branches or delegated behaviors associated with available components,
-and $theta_W (i)$ supplies the agent-level parameter values used by those
-behaviors. Any additional agent state is already part of $W$. The operator may
-update the agent, other agents, or the environment; it may also replace
-$kappa_W (i)$ and $theta_W (i)$ with a new signature and a value in the
-corresponding parameter space. Agent-centered organization therefore does not
-preclude compositional or dynamically changing heterogeneity. Its defining
-feature is that these transformations are reached through the activation of a
-particular agent representation.
-
-A scheduler turns the individual operators into a population transition. For
-a tick with $N_t=abs(I_t)$ scheduled agents, let
-$sigma_t: {1,dots,N_t} arrow I_t$ give their activation order. In the simplest
-sequential case,
-
-$
-  W_t^(0) = W_t, quad
-  W_t^(r) = F_(sigma_t (r)) (W_t^(r-1)), quad
-  W_(t+1) = W_t^(N_t).
-$
-
-Agent $sigma_t (r)$ consequently observes
-$N_(sigma_t (r)) (W_t^(r-1))$: an earlier activation may change the state seen
-by a later one. Activation order is behaviorally relevant whenever two
-operators do not commute,
-
-$ F_i circle F_j != F_j circle F_i. $
-
-This formulation also shows why a single agent step can obscure timing. One
-invocation may successively perform perception, choice, action, interaction
-resolution, and learning even though the scientific model assigns those
-processes different information sets or commitment times. Reading and writing
-the world during the same invocation gives each process the intermediate state
-created by the preceding code unless the implementation introduces explicit
-buffers or phases.
-
-Sequential semantics are not required by the agent-centered architecture. A
-framework can first invoke an intention function for every agent from the same
-state,
-
-$ p_i = G_(i,t) (W_t), $
-
-and then resolve and commit the collection $(p_i)_(i in I_t)$ in a separate
-model-level operation. The traffic reference implementation demonstrates both
-possibilities with the same `Car` record: its sequential schedule calculates a
-driver's LR value and moves that driver before activating the next, whereas
-its simultaneous contrast calculates all LR values from a frozen state before
-committing movement. The architectural question is thus not whether an
-agent-centered model *can* express simultaneous behavior, but whether
-agent-local activation is the clearest primary unit for specifying processes
-that operate over overlapping populations.
-
-=== Behavior definition and activation across ABM frameworks
-
-The major general-purpose toolkits separate the code that defines a behavior
-from the mechanism that activates it, but they commonly retain an individual
-agent as the unit of activation. Mesa illustrates the object-oriented form of
-this convention. Behavior is ordinarily written as methods of a Python
-`Agent` subclass, while a model-level step selects an `AgentSet` and invokes a
-named method through operations such as `do` or `shuffle_do`. The latter makes
-the population traversal explicit and permits filtering, grouping, fixed
-order, or randomized order, yet each invocation still enters the model through
-one agent object. If its method immediately mutates the model, that traversal
-implements a composition of $F_i$ operators under the chosen $sigma_t$.
-Nothing prevents a Mesa model from invoking several methods in successive
-passes, storing proposals, or performing resolution in `Model.step`; indeed,
-the `AgentSet` interface makes such staging natural. The architectural point is
-therefore that the idiomatic lexical home of behavior is an agent method, not
-that Mesa lacks population-level control or alternative activation regimes
-@terHoevenMesa3AgentBased2025.
-
-MASON gives the scheduler an even more independent status. Executable objects
-implement the Java `Steppable` interface and receive the shared `SimState`
-when their `step` method is called. Agents often implement `Steppable`
-themselves, so state and behavior remain co-located, but any helper,
-environmental process, or model-level coordinator may be scheduled in exactly
-the same way. Its priority queue can place one-shot or repeating events at
-real-valued times, order multiple phases at the same time, and wrap collections
-in fixed or randomized sequences. Thus MASON can encode an asynchronous event
-model directly, or a staged synchronous model by scheduling observation,
-resolution, and commitment as distinct `Steppable`s. This flexibility weakens
-any claim that agent-centered frameworks require one undifferentiated tick;
-what persists in typical models is the convention that an agent's
-`Steppable.step` supplies its $F_i$ @lukeMASONMultiagentSimulation2005.
-
-NetLogo distinguishes lexical location from activation especially clearly.
-Its behavior is written in named procedures rather than methods stored inside
-turtle, patch, or link objects. Nevertheless, `ask` executes a command block
-in the context of each member of an agentset, so the active `self`, its owned
-variables, and its local neighborhood organize the computation. For an
-agentset, ordinary `ask` visits agents serially in randomized order and commits
-changes as it goes. Consequently, noncommuting actions can expose the same
-$F_i circle F_j != F_j circle F_i$ dependence described above. The observer's
-`go` procedure can instead issue several `ask` passes and use temporary state
-to separate decision from commitment. NetLogo also retains `ask-concurrent`,
-which simulates turn-taking concurrency, but this is neither a general
-simultaneous-update guarantee nor the recommended basis for new models. The
-language therefore supports explicitly staged population processes while
-making agent-context commands the characteristic idiom @wilenskyNetLogo1999.
-
-Agents.jl reaches a similar organization without object-oriented lexical
-ownership. A discrete-time `StandardABM` is normally constructed with an
-external Julia function `agent_step!(agent, model)` and, optionally, a
-`model_step!(model)` function. A scheduler chooses which agents receive the
-former and in what order. Behavior is thus textually a free function and may
-use multiple dispatch, yet its ordinary activation still has the shape of
-$F_i(W)$. Model steps, custom schedulers, buffered fields, and repeated
-population passes can implement model-wide or simultaneous phases, while
-`EventQueueABM` provides continuous-time event execution instead of a
-once-per-tick sweep. Agents.jl is therefore appropriately described as
-agent-centered, not as class-bound: it deliberately exposes both agent-level
-and model-level transition hooks @datserisAgentsjlPerformant2024.
-
-FLAME GPU provides a useful limiting contrast. Behavior is lexically defined
-in external agent functions, but a function associated with an agent type and
-state is launched as a GPU kernel across the eligible population. Messages
-separate communication phases, and ordered layers or a dependency graph
-determine when kernels and host-level functions execute; functions within a
-valid layer may execute concurrently. Activation is consequently already
-population-wide and explicitly phased, even though eligibility and behavioral
-association remain organized by agent type and state rather than by a query
-over independently composed capabilities @richmondFLAMEGPU2Framework2023.
-
-Across these frameworks, then, “behavior located in agents” is a statement
-about the default route by which a transition is specified and reached, not a
-restriction on expressive power. All can express model-level processes,
-buffers, multiple phases, and custom timing. What changes among sequential,
-staged, simultaneous, and event-based formulations is how the framework
-constructs the population transition from the $F_i$: in particular, whether
-$sigma_t$ exposes intermediate worlds or whether proposals are computed from a
-common $W_t$ before commitment. The system-centered ECS alternative developed
-next changes the default unit of specification. Rather than begin with an
-agent activation and recover a population process from repeated calls, it
-begins with a process whose query selects every entity possessing the required
-state, making participation and process timing explicit in the executable
-structure.
-
-== From agent types to parameter spaces: The limitations of traditional agent based frameworks <sec:agent_types>
-
-Many traditional ABM frameworks make the agent's declared kind the default
-place in which its admissible fields are specified. In the notation of Section
-2.2, this common design can be represented by a schema map
-$accent(Theta, tilde): cal(T) arrow bold(Theta)$ such that
-$Theta_t(i) = accent(Theta, tilde)(tau_t(i))$. The map need not be surjective:
-several types may share a schema, and some admissible spaces in
-$bold(Theta)$ may be unused. Nor is this relationship necessary. Dynamic
-fields, delegated objects, flags, traits, and model-level tables can make the
-effective parameter space depend on more than the nominal type.
-
-Where both the software type and its declared schema remain fixed over an
-agent's lifetime, one may write $tau_t(i)=tau(i)$ and
-$Theta_t(i)=Theta(i)$. This is a frequent framework default, not a universal
-property of agent-centered modeling.
-
-
-=== Type based heterogeneity in practice
-
-The major general-purpose toolkits make nominal agent kinds and their fields
-the most visible route to heterogeneity, but they do so through different
-language mechanisms. Reviews therefore commonly classify toolkit support in
-terms of agent classes or breeds, attributes, and scheduling facilities
-@abarAgentBasedModelling2017. Relative to the distinctions in Section 2.2,
-these mechanisms usually give $tau$ and $Theta$ a native representation: a
-declared kind identifies a schema and each instance supplies its values
-$theta$. By contrast, a scientifically interpreted component signature
-$kappa$ is usually a convention constructed by the modeler rather than a
-first-class object on which the framework's storage and execution are based.
-This is a claim about the affordances made explicit by each toolkit, not a
-limit on what can be programmed in a general-purpose language.
-
-Mesa follows Python's class-based idiom. Modelers typically subclass `Agent`,
-declare or initialize instance attributes, and introduce further subclasses
-for behaviorally distinct populations @terHoevenMesa3AgentBased2025. A class
-label can therefore realize $tau$, its expected attributes define an
-admissible $Theta$, and their per-agent contents are $theta$. Python does not,
-however, force a closed schema: mixins, delegated behavior objects, dynamically
-attached attributes, and boolean or enumerated capability fields can encode an
-effective $kappa$. Mesa 3's `AgentSet` operations can select, group, and apply
-functions to arbitrary subsets, including subsets defined by attribute values
-rather than class. Such selectors permit process-oriented code over
-overlapping populations, even though class membership and agent records remain
-the standard presentation of heterogeneous state.
-
-MASON makes the nominal route more explicit through Java classes and
-interfaces. A model commonly defines several agent classes implementing
-`Steppable`; class fields determine the usual state schema and the scheduler
-invokes each object's `step(SimState)` method @lukeMASONMultiagentSimulation2005.
-Taking the principal concrete class as $tau$ gives the same conventional map
-from type to $Theta$. Java interfaces and inheritance can also describe
-overlapping capabilities, while delegation, composition, and state flags can
-represent $kappa$ without enumerating every capability combination as a
-subclass. Interfaces are themselves overlapping classifications, so they
-should not all be conflated with the paper's single, exhaustive $tau$:
-scientifically meaningful interface incidence is closer to a component
-signature. MASON can schedule shared `Steppable` processes or maintain custom
-collections, but its native object and scheduler APIs do not turn those
-capability sets into ECS-style schema queries.
-
-NetLogo separates nominal kinds from classes in the host-language sense.
-Every individual is first a turtle, patch, or link; `breed` declarations then
-partition turtles or links into named agentsets, and breed-specific `-own`
-declarations together with
-the common `turtles-own`, `patches-own`, and `links-own` declarations specify
-available variables @wilenskyNetLogo1999. A breed is thus a natural $tau$,
-the variables available to it define $Theta$, and their values form $theta$.
-Procedures are not methods owned by a
-class, and `ask` can target any constructed agentset, so behavior may already
-be written as a population operation. Moreover, a turtle or link can change
-breed at runtime. NetLogo is therefore an important counterexample to the
-assumption that $tau_t$ must be lifetime-invariant: changing breed can also
-change the breed-specific part of $Theta_t$. Overlapping capabilities can be
-encoded with ordinary variables, lists, links, or membership predicates and
-selected by arbitrary agentsets, but breeds themselves remain exclusive
-nominal categories rather than independently attachable components.
-
-Agents.jl uses Julia's concrete data types rather than a conventional class
-hierarchy. A homogeneous model may define one agent struct; heterogeneous
-models may admit a `Union` of agent types or use `@multiagent` to wrap a closed
-set of variants @datserisAgentsjlPerformant2024. Concrete type or enclosed
-variant then supplies $tau$, fields determine $Theta$, and multiple dispatch
-can specialize behavior by that kind. This representation is agent-centered,
-but behavior need not be stored on the agent: `StandardABM` accepts external
-`agent_step!` and `model_step!` functions, and the latter can perform custom
-selection and scheduling. Traits, delegated state objects, flags, and
-predicates can emulate overlapping $kappa$-like capabilities. Nevertheless,
-the built-in heterogeneous containers are organized around a declared union
-or closed variant set, not around arbitrary combinations of independently
-stored component schemas.
-
-FLAME GPU sharpens the distinction because execution efficiency is central to
-its design. Agent types declare fixed variable schemas, while agent functions
-are associated with agent states and execution layers and operate over GPU
-populations @richmondFLAMEGPU2Framework2023. The declared agent type again
-provides a natural $tau$ and schema $Theta$; dynamic agent state selects which
-functions apply, but is not by itself an independently attachable component
-set. FLAME GPU thus places behavior less squarely inside individual objects
-than Mesa or MASON while still organizing heterogeneous storage primarily by
-agent type and state. Across all five frameworks, compositional behavior can
-be emulated. The narrower contrast is that ECS makes $kappa$, signature-based
-selection, and changes of structural composition native organizing
-abstractions, whereas these toolkits primarily expose classes, breeds, closed
-variants, fields, states, and user-defined subset selectors.
-
-== What this architecture does well
-
-- It closely follows ordinary-language descriptions of autonomous individuals.
-- The complete state and behavior of one agent can be inspected in one place.
-- Highly individualized cognition or event-driven behavior can be natural to express.
-- Mature ABM frameworks provide extensive tooling around this representation.
-
-== Limitations to investigate rather than assume
-
-- Growth of type hierarchies or conditional behavior as capabilities overlap.
-- Duplication when several agent types share a process.
-- Difficulty separating observation from mutation when simultaneous behavior is required.
-- Pointer-heavy or array-of-structures layouts that load irrelevant state during population sweeps.
-
-#scaffold-note([Required standard of comparison], [
-  Use an idiomatic agent-centered implementation, not a deliberately weak inheritance hierarchy. Julia is not a conventional class-based OOP language, so describe the Agents.jl implementation as agent-centered. If the paper makes stronger claims about OOP, add a representative class-based implementation or narrow the terminology.
-])
-
-= Entity Component Systems as a Modeling Architecture
-
-Existing work has established that ECS can be used to implement ABM engines and can improve parallel performance @ambrosioImpactECSLogic. HECATE applies ECS concepts to engineering multi-agent systems @casalsHECATEECSbasedFramework2025. This paper builds on that literature but shifts the emphasis from engine feasibility to the consequences of ECS for scientific model construction.
-
-== Entities, components, systems, and resources
-
-- *Entity:* an identifier with no intrinsic data or behavior.
-- *Component:* a focused unit of state associated with an entity.
-- *Component signature:* the set of components currently associated with an entity.
-- *Query:* a selection of all entities possessing a required signature.
-- *System:* a transformation over components selected by one or more queries.
-- *Resource:* model-level state such as parameters, random-number streams, spatial indexes, or aggregate statistics.
-- *Structural change:* the addition or removal of entities or components, normally committed at a controlled boundary.
-
-Parallel to @sec:agent_types the ECS paradigm encompasses a binding of the parameter space. While traditional ABMs bind the parameter space of an agent to the type in ECS the parameter space of an agent is comprised of parameter spaces that correspond to the components.
-
-Formally let $Phi: cal(U) arrow bold("Set")$  assign a parameter space to each component type. The parameter space of entity $i$ is then given as
-$ Theta_t (i) = product_(c in kappa_t (i)) Phi(c) $
-
-
-
-Represent a system as
-
-$ S_k = (Q_k, upright("Read")_k, upright("Write")_k, F_k), $
-
-where $Q_k$ selects participating entities, $upright("Read")_k$ and
-$upright("Write")_k$ identify the components or resources read and written,
-and $F_k$ is the transformation. This representation connects model
-semantics, dependency analysis, testing, and possible parallel execution.
-
-== Compositional heterogeneity
-
-Using the notation of Section 2.2, let $cal(R)_k subset.eq cal(U)$ be the
-component set required by system $k$. Its signature query selects
-
-$ E_k (t) = {i in I_t | cal(R)_k subset.eq kappa_t (i)}. $
-
-This required-signature condition is the simplest form of $Q_k$; a query may
-add value predicates or exclude components. The signature determines
-eligibility, while the system applies one shared process to the selected
-population.
-
-Develop the following argument:
-
-- An entity does not need to belong to a named class to participate in a behavior.
-- Different systems may select overlapping populations.
-- A new combination of components does not necessarily require a new agent type.
-- Adding or removing a component changes agent structure and may confer or remove a behavioral capability.
-- Heterogeneity becomes a property of component incidence as well as parameter values.
-
-=== Example component-incidence matrix
-
-#table(
-  columns: (1.35fr, 0.7fr, 1fr, 1fr, 0.9fr),
-  inset: 6pt,
-  align: center,
-  table.header(
-    [*Entity*],
-    [#text(size: 8pt)[*Position*]],
-    [#text(size: 8pt)[*Near-field avoidance*]],
-    [#text(size: 8pt)[*Convention perception*]],
-    [#text(size: 8pt)[*Habit formation*]],
-  ),
-  [Driver A], [$checkmark$], [$checkmark$], [], [],
-  [Driver B], [$checkmark$], [], [$checkmark$], [$checkmark$],
-  [Driver C], [$checkmark$], [$checkmark$], [$checkmark$], [$checkmark$],
-  [Driver D], [$checkmark$], [], [], [$checkmark$],
-)
-
-The traffic case study realizes this form directly. Six behavioral mechanisms
-are represented by independently optional component bundles, so systems select
-overlapping subsets of drivers without defining a class for every component
-combination. The signature is fixed during one driver's life in the present
-model, but entry-draw replacement and evolutionary inheritance can change the
-population distribution between generations. The case therefore demonstrates
-structural and evolutionary composition, not within-lifetime component
-acquisition.
-
-== Thinking in systems rather than agents
-
-The agent-centered question is, "What does this agent do during its step?" The system-centered question is, "What transformation occurs in the model, and which entities possess the state required to participate?"
-
-A system-centered transition can be written as
-
-$ S_k: E_k times W arrow Delta W. $
-
-Develop three implications:
-
-+ *Processes become explicit.* Perception, choice, movement, matching, learning, entry, and exit appear as separate executable model processes.
-+ *Mechanisms become replaceable.* A modeler can substitute a prediction or learning system while retaining entity state and unrelated processes.
-+ *Dependencies become inspectable.* Read and write sets identify which systems must be ordered and which may run independently.
-
-This chapter must address a likely objection: locating behavior outside an entity does not remove scientific agency. Private information, goals, memory, and decisions remain entity-specific components; a system implements the transition law shared by entities possessing its required component signature.
-
-== Interaction phases and concurrency
-
-Distinguish carefully:
-
-- *Simultaneous model semantics:* agents decide from a common state.
-- *Concurrent execution:* computations may overlap without changing the declared semantics.
-- *Parallel execution:* concurrent work is distributed across hardware for speed.
-
-The ECS decomposition of an interaction should be illustrated as:
+A sequential phase instead evaluates its processes against the intermediate
+states produced by their predecessors. Many simultaneous interactions can be
+described by the staged sequence
 
 ```text
-observe -> form intentions -> resolve conflicts -> commit actions -> learn
+observe -> form intentions -> resolve conflicts -> apply actions -> learn
 ```
 
-Systems with disjoint writes or read-only shared inputs may be evaluated concurrently. Systems that contend over shared resources require an explicit reduction, arbitration, or commitment phase. ECS exposes these dependencies but does not eliminate them. The formal concurrency properties of ECS and the conditions for deterministic execution should be connected to @redmondExploringTheoryPractice2025.
+Not every model requires all five stages, and a scientifically sequential
+interaction should not be made simultaneous only because this decomposition is
+convenient. The phases specify what each process observes and when its effects
+become visible; they do not by themselves prescribe a software architecture.
 
-== Data-oriented engineering consequences
 
-Explain the difference between an array of complete agent records and component-oriented storage. Then motivate, without assuming, the following expected effects:
+#let agent_centered_detail = [
+  == Behavior located in agents
 
-- Systems load only the component arrays they use.
-- Homogeneous loops may improve cache locality and vectorization.
-- Queries over archetypes can batch entities with compatible memory layouts.
-- Explicit read/write sets can support safe multicore scheduling.
-- Structure-of-arrays layouts may map naturally to GPU kernels.
+  The preceding forms of heterogeneity describe what may differ between agents;
+  they do not yet specify where the corresponding behavior is implemented. With
+  the notation of @sec:heterogeneity, $a_W(i)$ is the descriptor of agent $i$ in world
+  state $W$. Let $N_i (W)$ be the information about that state made available to
+  agent $i$. In an agent-centered architecture, activating $i in I(W)$ invokes
+  an agent-level transition operator
 
-Also state the costs:
+  $
+    F_i(W) = f_(tau_W(i)) (
+      kappa_W(i), x_W(i), N_i(W), W
+    ).
+  $
 
-- Query and archetype-management overhead.
-- Expensive structural changes when entities move between archetypes.
-- Synchronization and conflict-resolution costs.
-- Possible fragmentation of the conceptual description of an individual agent.
-- Poor GPU utilization for branch-heavy or tightly coupled interactions.
+  The right-hand side is understood to return an updated world state. The type
+  $tau_W(i)$ may select the implementation by dispatch, $kappa_W(i)$ may
+  select branches or delegated behaviors associated with available components,
+  and $x_W(i)$ supplies the agent-level state used by those behaviors, including
+  the parameter coordinates $p_(X_W(i))(x_W(i))$. Any additional model state is
+  already part of $W$. The operator may
+  update the agent, other agents, or the environment; it may also replace
+  $kappa_W(i)$, $X_W(i)$, and $x_W(i)$ with a new signature, corresponding state
+  space, and admissible state value. Agent-centered organization therefore does not
+  preclude compositional or dynamically changing heterogeneity. Its defining
+  feature is that these transformations are reached through the activation of a
+  particular agent representation.
 
-= Positioning in the Literature
+  A scheduler turns the individual operators into a population transition. For
+  a current state $W$, let
+  $sigma_W: {1,dots,N(W)} arrow I(W)$ give the activation order of the agents
+  scheduled from that state. In the simplest sequential case,
 
-== ABM tools and agent-centered design
+  $
+    W^(0) = W, quad
+    W^(r) = F_(sigma_W (r)) (W^(r-1)), quad
+    T_(sigma_W)(W) = W^(N(W)).
+  $
 
-- Review major ABM toolkits and how they represent agent types, activation, interaction, and model-level processes @abarAgentBasedModelling2017.
-- Avoid claiming that existing frameworks cannot support heterogeneity, synchronous behavior, or custom scheduling.
-- Identify the more precise contrast: ECS makes component composition and population systems the default organizing abstractions.
+  Agent $sigma_W (r)$ consequently observes
+  $N_(sigma_W (r)) (W^(r-1))$: an earlier activation may change the state seen
+  by a later one. Activation order is behaviorally relevant whenever two
+  operators do not commute,
+
+  $ F_i circle F_j != F_j circle F_i. $
+
+  This formulation also shows why a single agent step can obscure timing. One
+  invocation may successively perform perception, choice, action, interaction
+  resolution, and learning even though the scientific model assigns those
+  processes different information sets or update times. Reading and writing
+  the world during the same invocation gives each process the intermediate state
+  created by the preceding code unless the implementation introduces explicit
+  buffers or phases.
+
+  Behavior organization and schedule semantics become distinct as soon as an
+  agent activation produces an intention rather than immediately mutating the
+  world. A simultaneous schedule can first evaluate
+
+  $ p_i = G_i (W), $
+
+  and then resolve and apply the collection $(p_i)_(i in I(W))$ in a model-level
+  operation. The Sugarscape comparison uses the same citizen state in two such
+  schedules: its shuffled-sequential treatment moves and harvests for one
+  citizen before activating the next, whereas its synchronous treatment forms
+  all destination proposals from a frozen occupancy and landscape state before
+  resolving contested cells. This isolates the schedule's information
+  semantics from the location of the behavior that produces each intention.
+
+  == From agent types to state schemas <sec:agent_types>
+
+  Many traditional ABM frameworks make the agent's declared kind the default
+  place in which its admissible fields are specified. In the notation of
+  @sec:heterogeneity, this common design can be represented by a schema map
+  $accent(X, tilde): cal(T) arrow bold(X)$ such that
+  $X_W (i) = accent(X, tilde)(tau_W (i))$. The map need not be surjective:
+  several types may share a schema, and some admissible spaces in
+  $bold(X)$ may be unused. Nor is this relationship necessary. Dynamic
+  fields, delegated objects, flags, traits, and model-level tables can make the
+  effective state schema depend on more than the nominal type.
+
+  Where both the software type and its declared schema remain fixed over an
+  agent's lifetime, one may write $tau_W (i)=tau(i)$ and
+  $X_W (i)=X(i)$ for every admissible $W$ containing $i$. This is a frequent
+  framework default, not a universal
+  property of agent-centered modeling.
+]
+
+
+#let framework_survey = [
+  == ABM tools and agent-centered design
+
+  The major general-purpose toolkits occupy different positions on the three
+  dimensions introduced above. Their state abstractions nevertheless tend to
+  make an individual agent kind and its fields more explicit than an independently
+  composed component signature. In the notation of @sec:heterogeneity, their native
+  abstractions commonly provide $tau$, $X$, and $x$, whereas a scientifically
+  interpreted $kappa$ is constructed through classes, interfaces, flags, traits,
+  or subset selectors. Their behavior and schedule abstractions vary more widely:
+  some enter through agent methods, others through external functions, population
+  operations, or explicitly layered kernels @abarAgentBasedModelling2017.
+
+  Mesa follows Python's class-based idiom: modelers typically subclass `Agent`,
+  store state in instance attributes, and define behavior as agent methods
+  @terHoevenMesa3AgentBased2025. A model-level step selects an `AgentSet` and
+  invokes those methods with operations such as `do` or `shuffle_do`, so the
+  population traversal can be filtered, grouped, fixed, or randomized while
+  each invocation still enters through an agent object. Classes and expected
+  attributes provide a natural $tau$ and $X$, but Python does not impose a closed
+  schema. Mixins, delegated objects, dynamic attributes, capability fields, and
+  `AgentSet` selectors can encode an effective $kappa$ and support staged or
+  process-oriented operations over overlapping populations.
+
+  MASON makes the nominal route more explicit through Java classes and
+  interfaces. A model commonly defines several agent classes implementing
+  `Steppable`; class fields determine the usual state schema and the scheduler
+  invokes each object's `step(SimState)` method @lukeMASONMultiagentSimulation2005.
+  Helpers, environmental processes, and model-level coordinators may implement
+  the same interface, and its priority queue supports asynchronous events,
+  ordered phases, and fixed or randomized collections. Java interfaces,
+  delegation, composition, and state flags can also represent overlapping
+  capabilities without enumerating every combination as a subclass. Interface
+  incidence may therefore resemble $kappa$ more closely than the paper's
+  exclusive $tau$, although MASON's object and scheduler APIs do not make those
+  capability sets the basis of ECS-style storage queries.
+
+  NetLogo separates nominal kinds from classes in the host-language sense.
+  Every individual is first a turtle, patch, or link; `breed` declarations then
+  partition turtles or links into named agentsets, and breed-specific `-own`
+  declarations together with
+  the common `turtles-own`, `patches-own`, and `links-own` declarations specify
+  available variables @wilenskyNetLogo1999. A breed is thus a natural $tau$,
+  the variables available to it define $X$, and their values form $x$.
+  Procedures are not methods owned by a class, but `ask` executes them in each
+  selected agent's context and ordinarily applies changes in randomized serial
+  order. Several `ask` passes and temporary state can instead separate decision
+  from application. A turtle or link may also change breed at runtime, making
+  NetLogo an important counterexample to fixed lifetime schemas: changing breed
+  can change the breed-specific part of $X_W$. Ordinary variables, lists, links,
+  membership predicates, and constructed agentsets can represent overlapping
+  capabilities, but breeds remain exclusive nominal categories rather than
+  independently attachable components.
+
+  Agents.jl uses Julia's concrete data types rather than a conventional class
+  hierarchy. A homogeneous model may define one agent struct; heterogeneous
+  models may admit a `Union` of agent types or use `@multiagent` to wrap a closed
+  set of variants @datserisAgentsjlPerformant2024. Concrete type or enclosed
+  variant supplies $tau$, fields determine $X$, and multiple dispatch can
+  specialize behavior by that kind. Behavior is defined externally through
+  `agent_step!` and `model_step!`; a scheduler selects the agents and order
+  receiving the former, while model steps, custom schedulers, buffers, and
+  repeated population passes can implement shared or simultaneous processes.
+  `EventQueueABM` additionally supports continuous-time events. Traits,
+  delegated state, flags, and predicates can emulate overlapping $kappa$-like
+  capabilities, but the built-in heterogeneous containers remain organized
+  around a declared union or closed variant set rather than arbitrary component
+  combinations.
+
+  FLAME GPU sharpens the distinction because execution efficiency is central to
+  its design. Agent types declare fixed variable schemas, while agent functions
+  are associated with agent states and execution layers and operate over GPU
+  populations @richmondFLAMEGPU2Framework2023. The declared agent type again
+  provides a natural $tau$ and $X$, but behavior is launched population-wide as
+  GPU kernels rather than invoked serially as object methods. Messages separate
+  communication phases, and ordered layers or a dependency graph determine when
+  agent and host functions execute. Activation is therefore explicitly phased
+  and potentially concurrent, even though eligibility and heterogeneous storage
+  remain organized primarily by agent type and state rather than queries over
+  independently composed capabilities.
+
+  The survey yields a sharper baseline than a single agent-centered/ECS binary.
+  These frameworks vary substantially in behavior organization and scheduling,
+  but they primarily anchor heterogeneous state in an agent kind, record, breed,
+  or declared variant. ECS changes that anchor: $kappa$, signature-based
+  selection, and structural change become the native organizing abstractions.
+  The same signature then connects an agent's admissible state to the population
+  processes in which it participates. Storage remains a further implementation
+  question, examined separately below.
+]
+
+#let agent_centered_assessment = [
+  == What this architecture does well
+
+  - It closely follows ordinary-language descriptions of autonomous individuals.
+  - The complete state and behavior of one agent can be inspected in one place.
+  - Highly individualized cognition or event-driven behavior can be natural to express.
+  - Mature ABM frameworks provide extensive tooling around this representation.
+
+  == Limitations to investigate rather than assume
+
+  - Growth of type hierarchies or conditional behavior as capabilities overlap.
+  - Duplication when several agent types share a process.
+  - Difficulty separating observation from mutation when simultaneous behavior is required.
+
+  #scaffold-note([Required standard of comparison], [
+    Use an idiomatic agent-centered implementation, not a deliberately weak inheritance hierarchy. Julia is not a conventional class-based OOP language, so describe the Agents.jl implementation as agent-centered. If the paper makes stronger claims about OOP, add a representative class-based implementation or narrow the terminology.
+  ])
+]
+
+= Positioning in the Literature <sec:literature>
+
+#framework_survey
 
 == ECS, data-oriented design, and concurrency
 
@@ -661,541 +551,816 @@ The intended novelty claim is:
   Conduct a reproducible search across ABM, individual-based modeling, multi-agent systems, component-based simulation, process-oriented simulation, FLAME/FLAME GPU, and data-oriented scientific computing. Do not use "first" or "previously unexplored" until this search is documented. Add literature on ODD model descriptions, activation regimes, component-based ABM, and GPU conflict resolution.
 ])
 
-= Case Study: The Evolution of a Traffic Convention
+= Agent-Centered Baseline <sec:agent-centered>
 
-== Why this model
+== The agent object convention
 
-Use the traffic-convention model associated with Hodgson and Knudsen as a compact economic ABM in which heterogeneous behavioral dispositions, endogenous habit formation, interaction, and convention emergence are tightly connected @hodgsonEconomicsShadowsDarwin2006.
+A common implementation of an ABM assigns each scientific agent a corresponding software object.
+The object has an identity and a named type or record structure, while its fields hold both externally visible state, such as position or wealth, and internal state, such as beliefs, preferences, or memory.
+Behavior is associated with that representation through methods selected by inheritance, dispatch, or explicit calls.
+We call this organization the *agent object convention*.
+Here, “object” is used in the broad architectural sense of a state-bearing software representation; it does not require a particular object-oriented language or an inheritance hierarchy.
 
-The case study should serve four purposes:
+Execution under this convention is typically organized by a scheduler.
+At each tick or event, the scheduler selects an agent and invokes a step function or event handler associated with its representation.
+During that invocation, the agent may inspect its own fields, query nearby agents or shared model state, choose an action, and mutate itself, another agent, or the environment.
+The population-level transition is consequently assembled from repeated invocations of agent-level behavior.
+Toolkits differ substantially in how they order these invocations: they may use fixed or randomized activation, simultaneous-update buffers, event queues, multiple agent types, or user-defined schedules @abarAgentBasedModelling2017.
 
-+ Validate that ECS can faithfully express an established model.
-+ Make the difference between agent-centered and system-centered organization concrete.
-+ Extend the model from parametric to compositional heterogeneity.
-+ Demonstrate how the same decomposition supports simultaneous interaction.
+This organization makes the agent object the principal unit of both description and execution.
+The state belonging to an agent is determined by its record or type, behavior is approached by asking what that agent does during its activation, and an interaction commonly enters the implementation through one participating agent's method.
+These choices are architectural commitments rather than requirements of agent-based modeling itself.
+The same scientific model could instead store state separately from identity and express behavior as transformations over every agent satisfying particular conditions.
 
-== Reference model and extension boundary
+In this paper, *agent-centered* names the conjunction of two default commitments: the complete agent representation is the primary schema of individual state, and an activation of that representation is the principal entry point to behavior. Schedule semantics and physical storage are treated as separate dimensions rather than inferred from those commitments.
 
-The repository contains two deliberately distinct models. `SequentialModel` is
-the agent-centered reference used to reproduce the one-cell, activation-ordered
-traffic process associated with Hodgson and Knudsen. `CapabilityModel` is the
-ECS extension specified below. It retains the reference model's two-lane ring,
-bounded forward observation, LR lane-choice equation, age-dependent habit, and
-collision-replacement selection. It changes the timing to staged simultaneous
-action, permits speeds from one to three cells, and makes behavioral mechanisms
-independently optional. Convention and SocialHabit are extensions and have no
-counterpart in the reference model. Results from the two models are therefore a
-contrast in mechanisms and timing, not a claim of numerical equivalence.
+#agent_centered_detail
 
-Matched initialization and deterministic tests verify shared setup and local
-transition rules, but they are not sufficient evidence of replication. A
-behavioral replication must additionally compare published target patterns over
-multiple seeds and report every intentional deviation listed in the contrast
-below.
+#agent_centered_assessment
 
-== Capability-composed synchronous model
+= Entity Component Systems as a Modeling Architecture
 
-The following specification is an implementation-level ODD description of the
-current `CapabilityModel`. A reimplementation that follows the state variables,
-equations, action ordering, and schedule below should reproduce its scientific
-semantics. Exact random streams additionally require Julia's `Xoshiro` generator
-and the same entity/query iteration order.
+Building on the engine and multi-agent work reviewed in @sec:literature, this
+chapter turns from ECS feasibility to its consequences for scientific model
+construction.
 
-=== Purpose, entities, environment, and scale
+The ECS pattern first changes two aspects of model specification: how agent
+state is composed and where transition laws are located. Queries and declared
+effects then connect those choices to a third dimension, the schedule that
+orders processes and defines update visibility. An engine may exploit the same
+information for component-oriented storage and batch execution, but storage
+does not define the scientific semantics, and a schedule is not implied by a
+memory layout. The architectural claim is more specific: ECS carries one
+explicit account of required state from agent composition, through process
+participation, to dependency and schedule analysis. Its consequences for the
+loops that execute the model are evaluated separately.
 
-The model studies whether a population of boundedly informed drivers forms a
-common rule of the road and how personal Habit, observed Convention, and
-SocialHabit formed from traces of successful drivers affect that process. A car
-is an entity. The road is the discrete periodic lattice
+== Entities, components, systems, and resources
 
-$ G = {1, 2} times bb(Z)_H. $
+- *Entity:* an identifier with no intrinsic data or behavior.
+- *Component:* a focused unit of state associated with an entity.
+- *Component signature:* the set of components currently associated with an entity.
+- *Query:* a state-dependent selection of entities by component signature and optional predicates.
+- *System:* a transformation over components selected by one or more queries.
+- *Resource:* model-level state such as parameters, random-number streams, spatial indexes, or aggregate statistics.
+- *Structural change:* the addition or removal of entities or components.
 
-The first coordinate is the lane and the second is an element of the cyclic
-group $bb(Z)_H$. Thus longitudinal addition is explicitly modulo $H$, whereas
-the lane coordinate is merely an element of the finite set ${1,2}$ and does not
-wrap.
-Every cell contains at most one car at the committed start of a tick. Direction
-$d_i in {-1,+1}$ is permanent during a driver's life: $+1$ moves toward
-increasing longitudinal coordinates (clockwise), and $-1$ moves toward
-decreasing coordinates (counterclockwise). Define the relative-side sign
+Parallel to @sec:agent_types, ECS binds an entity's state schema to its component
+signature rather than necessarily to one nominal type. Formally, let
+$Phi: cal(U) arrow bold("Set")$ assign a state-value domain to each component
+type. The admissible state space of entity $i$ is then
+
+$ X_W (i) = product_(c in kappa_W (i)) Phi(c). $
+
+When the component domains separate dynamic state from stable traits, this can
+equivalently be written $X_W (i) equiv S_W (i) times Theta_W (i)$. More
+generally, the projection $p_(X_W (i))$ identifies the coordinates treated as
+parameters for the scientific comparison. A parameter that mutates or changes
+at replacement is therefore part of the complete simulation state even while
+serving as a parameter of the agent's behavioral transition law.
+
+=== Queries
+
+A query describes a role that entities may occupy in a model process. It is
+evaluated against a world state rather than identified once and for all with a
+fixed subset of agents. For $W in cal(W)$, use the entity set $I(W)$ and
+component-signature function $kappa_W$ defined in @sec:heterogeneity.
+
+Represent a query $Q$ by required and excluded component sets
+$cal(C)_Q^+, cal(C)_Q^- subset.eq cal(U)$ and an optional state predicate
+$psi_Q$. Its result is
 
 $
-  r(x,d) = cases(
-    +1 & "when lane " x " is left relative to direction " d,
-    -1 & "otherwise",
-  ).
+  E_Q (W) = {i in I(W) |
+    cal(C)_Q^+ subset.eq kappa_W (i),
+    cal(C)_Q^- inter kappa_W (i) = emptyset,
+    psi_Q (i,W)=1}.
 $
 
-Thus $r(1,+1)=r(2,-1)=+1$ and $r(2,+1)=r(1,-1)=-1$.
-One tick contains three movement micro-steps. A car may advance between one and
-$M <= 3$ cells per tick and may change lane only during its first micro-step.
-The population size is held constant by replacing every driver removed in a
-collision.
+Taking $cal(C)_Q^-=emptyset$ and $psi_Q=1$ gives an ordinary required-signature
+query. Value predicates may select a narrower current population, while an
+excluded-component condition can distinguish, for example, entities that have
+position but lack a movement capability. Query membership may therefore change
+when component composition or component values change, even if the entity
+persists.
 
-=== Entity state and structural capabilities
+A system may use a finite query family
 
-Every capability car has the following mandatory state.
+$ bold(Q)_k = (Q_(k 1), dots, Q_(k m_k)), $
+
+with $m_k >= 0$. The corresponding population vector at $W$ is
+
+$
+  bold(E)_k (W) = (E_(k 1) (W), dots, E_(k m_k) (W)), quad
+  E_(k j) (W)=E_(Q_(k j)) (W).
+$
+
+The empty family permits a process that operates only on model-level state.
+Multiple queries may identify different participant roles in one interaction,
+or they may provide complete populations that a system matches, aggregates, or
+otherwise processes jointly. This is broader than treating every query result
+as an independent invocation, while retaining the Core ECS idea that systems
+declare their inputs through queries @redmondExploringTheoryPractice2025.
+
+=== Resources
+
+A resource is state belonging to the model as a whole rather than to one
+entity. Let $cal(G)$ be the finite set of resource labels and let
+$Psi: cal(G) arrow bold("Set")$ assign a value domain to each resource. The
+resource part of world state $W$ is
+
+$ r_W in product_(g in cal(G)) Psi(g). $
+
+Parameters, the seeded random-number generator, occupancy indexes,
+environmental trace fields, replacement queues, and aggregate statistics are
+resources in this sense. A resource may be read-only during a run or may evolve
+as part of the simulation state. In particular, stochastic behavior remains a
+state transition conditional on the current state of the model RNG resource.
+
+For dependency declarations, take $cal(A)=cal(U) union cal(G)$ as a tagged
+union of component and resource labels. A system's declared read and write sets
+are subsets of $cal(A)$. They are conservative, type-level summaries: an
+invocation may touch only particular entities carrying a component, but the
+declaration records every component or resource kind that it may access.
+
+=== Systems
+
+A system specification is given by the tuple
+
+$
+  cal(S)_k = (bold(Q)_k, upright("Read")_k,
+    upright("Write")_k, F_k),
+$
+
+where $bold(Q)_k$ is its query family,
+$upright("Read")_k, upright("Write")_k subset.eq cal(A)$ declare its possible
+effects, and $F_k$ is its system function. Let $rho_k (W)$ denote the projection
+of $W$ containing the component and resource values declared in
+$upright("Read")_k$. From the selected entities and those inputs, $F_k$
+determines the new values of the declared outputs. Evaluation of the system
+therefore induces a state transition
+
+$ T_k: cal(W) arrow cal(W). $
+
+Values outside $upright("Write")_k$ remain unchanged under $T_k$.
+
+Every component or resource inspected by a query, including a component tested
+only for presence or absence, is included in $upright("Read")_k$. Adding or
+removing such a component is correspondingly a write to that component label.
+The declarations therefore cover changes to query membership as well as reads
+and writes of component values.
+
+The function may update component or resource values and may create or remove
+entities or components. A schedule determines when queries observe state, when
+updates become visible, and how several systems compose, as formalized in
+@sec:time. An implementation may defer structural changes until it can safely
+update its storage, but this is an engine constraint rather than part of the
+definition of a system.
+
+When the queries describe distinct participant roles, the system may define a
+match relation
+
+$
+  cal(M)_k (W) subset.eq product_(j=1)^(m_k) E_(k j) (W).
+$
+
+The relation may exclude self-interaction, impose spatial or institutional
+eligibility, or otherwise avoid treating the complete Cartesian product as a
+set of interactions. A tuple-wise system applies a kernel $f_k$ to the matches.
+For each $bold(i) in cal(M)_k (W)$, define the indexed proposal
+
+$
+  d_(k,bold(i)) (W) = f_k (bold(i), rho_k (W)).
+$
+
+Under simultaneous semantics all kernels observe the same $W$. Writing
+$bold(d)_k (W)$ for the family of these indexed proposals, joint resolution
+defines the system transition
+
+$ T_k (W) = upright("resolve")_k (W, bold(d)_k (W)). $
+
+A collection-wise system instead gives $F_k$ the complete population vector
+$bold(E)_k (W)$ and lets it perform matching, aggregation, sampling, or
+arbitration internally. Market clearing, synchronous path-conflict resolution,
+and replacement from a survivor pool are naturally expressed this way. If
+different queries within what appears to be one process must observe different
+intermediate states, that timing is part of an internal schedule; where
+scientifically meaningful, the process should instead be decomposed into
+separate ordered systems.
+
+This representation connects model semantics, dependency analysis, testing,
+and possible parallel execution. Systems whose writes cannot affect another's
+reads or writes may admit concurrent evaluation. Contending writes or a write
+that changes another system's inputs require ordering, reduction, arbitration,
+or a separate update phase.
+
+== Compositional heterogeneity
+
+The query mechanism operationalizes the structural definition in
+@sec:heterogeneity. An entity participates in a process because its current
+signature satisfies that process's query. Independently evaluated queries may
+select overlapping populations: a firm may be both an exporter and a borrower,
+or a Sugarscape citizen may be female and infected while also satisfying the
+age and wealth predicates for fertility, without requiring a
+combination-specific citizen type.
+
+The incidence vector $chi_i(W)$ therefore describes both an agent's state
+schema and its eligibility for processes. A newly occurring signature does not
+by itself require a new implementation because each system continues to select
+only the components it needs. If a mechanism depends specifically on a
+conjunction of capabilities, however, that conjunction must still be expressed
+in a query or behavioral rule.
+
+Structural changes alter query membership as well as state schema. Their
+timing remains a schedule choice: an engine may stage component additions and
+removals until a phase boundary so a query is not invalidated during traversal.
+ECS makes that change explicit but does not decide when it should become
+scientifically visible.
+
+=== Example component-incidence matrix
 
 #table(
-  columns: (1.25fr, 0.85fr, 2.5fr),
-  inset: 5pt,
-  align: (left, left, left),
-  table.header([*State*], [*Domain*], [*Meaning*]),
-  [`Position`], [$G$], [Committed lane and longitudinal cell],
-  [`PrevPosition`], [$G$], [Position copied at the beginning of the tick],
-  [`Direction`], [${-1,+1}$], [Permanent direction of travel],
-  [`Speed`], [${1,dots,M}$], [Last successfully committed speed],
-  [`SpeedAdjustment`], [positive integer], [Per-driver speed cap, set to the global $M$],
-  [`Step`], [positive integer], [Successful lifetime counter; initialized to one],
-  [`LocalObservation`], [record], [Private start-of-tick observation summary],
-  [`LaneScore`, `LR`], [real], [Unperturbed lane-response value],
-  [`LaneProposal`], [${1,2}$], [Lane selected from LR],
-  [`SpeedProposal`], [${1,dots,M}$], [Submitted speed],
-  [`MovementPath`], [$G^3$], [Three-micro-step proposed path],
+  columns: (1.35fr, 0.8fr, 0.8fr, 0.9fr, 1fr),
+  inset: 6pt,
+  align: center,
+  table.header(
+    [*Entity*],
+    [#text(size: 8pt)[*Position*]],
+    [#text(size: 8pt)[*Female*]],
+    [#text(size: 8pt)[*Male*]],
+    [#text(size: 8pt)[*Infection*]],
+  ),
+  [Citizen A], [$checkmark$], [$checkmark$], [], [$checkmark$],
+  [Citizen B], [$checkmark$], [$checkmark$], [], [],
+  [Citizen C], [$checkmark$], [], [$checkmark$], [$checkmark$],
+  [Citizen D], [$checkmark$], [], [$checkmark$], [],
 )
 
-Six optional components determine which response systems select a car. Their
-presence indicators are written $chi_i^S, chi_i^O, chi_i^A, chi_i^H,
-chi_i^C, chi_i^Z$.
+The mandatory `Position` column is identical for all four citizens and hence
+does not contribute to heterogeneity in this population. `Female` and `Male`
+are mutually exclusive tags, while `Infection` overlaps either sex. Infection
+progression selects Citizens A and C; reproduction first selects the appropriate
+sex tag and then evaluates age, wealth, and neighborhood predicates. Recovery
+removes `Infection` from A or C without changing identity or unrelated state,
+so query membership and component composition change within a citizen's life.
+The example also shows that not every changing role must be a component:
+fertility is derived from existing state rather than stored as a tag.
 
-#table(
-  columns: (1.35fr, 1.35fr, 2fr),
-  inset: 5pt,
-  align: (left, left, left),
-  table.header([*Capability component*], [*Private state or trait*], [*Information used*]),
-  [`SameDirectionResponse`], [$s_i$], [Sides occupied by observed co-directional cars],
-  [`OppositeDirectionResponse`], [$o_i$], [Sides occupied by observed opposing cars],
-  [`NearFieldAvoidance`], [$a_i$], [Counts on both relative sides within $M$ cells],
-  [`HabitFormation`], [$h_i$ and acquired $H_i$], [Driver's own realized lane history],
-  [`ConventionPerception`], [$alpha_i^C, sigma_i^C, C_i, rho_i$], [History of nearby drivers' realized side choices],
-  [`SocialHabitFormation`], [$z_i, alpha_i^Z, sigma_i^Z, Z_i$], [History of locally observed successful-driver traces],
-)
+== Thinking in systems rather than agents
 
-`Habitus`, `PerceivedConvention`, and `SocialHabitus` exist only when their
-corresponding formation/perception component exists. Every car has speed control;
-speed is not an optional behavioral component in this treatment. With six
-independent binary capabilities, up to $2^6$ component signatures can occur
-without defining combination-specific driver types.
+The agent-centered question is, “What does this agent do during its step?” The
+system-centered question is, “What transformation occurs in the model, and
+which entities possess the state required to participate?” This change of
+question shifts the primary unit of executable organization from the complete
+agent representation to a population-level process.
 
-=== Parameters and initialization
+First, this organization makes processes explicit. Perception, choice,
+movement, matching, learning, entry, and exit can be represented as distinct
+transformations, each with its own participants and visibility boundary. The
+model description need not recover a population process by tracing the order
+in which fragments of it are invoked from individual agent steps. Conversely,
+the decomposition forces the modeler to decide whether two operations are one
+process or ordered processes and whether the output of one is visible to the
+other. A one-to-one correspondence between a scientific process and a software
+system is not automatic: a complex market-clearing mechanism may require
+several systems, while a simple maintenance system may combine several
+scientifically unimportant updates. The benefit is that this correspondence
+becomes an explicit modeling choice.
 
-#table(
-  columns: (0.9fr, 1.05fr, 2.75fr),
-  inset: 5pt,
-  align: (left, left, left),
-  table.header([*Parameter*], [*Default*], [*Definition*]),
-  [$N, H$], [$120, 300$], [Population and longitudinal ring length],
-  [$ell$], [$60$], [Forward observation horizon; current experiments set $ell=20$],
-  [$delta$], [$0.2$], [Standard deviation of entry trait draws around one],
-  [$epsilon$], [$0.01$], [Probability of reversing the LR-selected relative side],
-  [$K$], [$10$], [Habit accumulation offset],
-  [$M$], [$3$], [Maximum speed and near-field distance],
-  [$w_S,w_O,w_A$], [$0.5$], [Traffic-response weights],
-  [$w_H,w_C,w_Z$], [$0.5$], [Habit, Convention, and SocialHabit weights],
-  [$q_S,q_O,q_A$], [$0.75$], [Independent entry probabilities for traffic responses],
-  [$q_H,q_C,q_Z$], [$0.5,0.5,0$], [Independent entry probabilities for acquired mechanisms],
-  [$alpha^C,alpha^Z$], [$0.2$], [Entry learning rates],
-  [$sigma^C,sigma^Z$], [$0.05$], [Entry observation-noise standard deviations],
-  [$rho,D$], [$0.9,0.25$], [Trace retention and deposit magnitude],
-  [$gamma$], [$0$], [Optional speed-dependent clearance coefficient],
-  [$mu,sigma_m$], [$0.02,0.05$], [Evolutionary presence-mutation probability and trait-mutation scale],
-)
+Sugarscape illustrates the resulting organization. Growback transforms the
+landscape; movement selects positioned citizens with vision and wealth;
+synchronous resolution operates on all submitted destinations; disease
+progression selects only infected citizens; lifecycle rules process metabolism
+and age; and reproduction matches eligible female and male populations. A
+citizen participates in several of these processes during one period, but no
+single invocation of that citizen is responsible for advancing the period. The
+executable structure instead follows the sequence of processes that jointly
+produce citizen and landscape transitions.
 
-The six presence indicators are drawn independently with probabilities $q_k$.
-Conditional on presence, $s_i,o_i,a_i,h_i$, and $z_i$ are independent draws
-from $cal(N)(1,delta^2)$. Convention carriers receive the common entry values
-$alpha^C,sigma^C$; SocialHabit carriers receive $z_i$ plus
-$alpha^Z,sigma^Z$. Acquired states start at $H_i=C_i=rho_i=Z_i=0$.
+Second, systems provide boundaries at which mechanisms can be substituted. An
+alternative movement, transmission, inheritance, or matching rule can replace $F_k$ while
+retaining the entities, component storage, and unrelated systems, provided it
+honors the same query and state contract. If the alternative requires new
+inputs or produces different state, the affected declarations and downstream
+dependencies must change as well; system separation does not make
+scientifically incompatible mechanisms interchangeable. It does, however,
+localize the change and permits competing mechanisms to be tested against the
+same initialization, surrounding processes, and recorded outcomes. Mechanism
+substitution thereby becomes a controlled model comparison rather than a new
+taxonomy of agent variants.
 
-Initial positions are sampled uniformly without replacement from the $2H$
-cells. Direction labels are shuffled after assigning equal counts clockwise and
-counterclockwise (for an odd population, clockwise receives the extra car).
-Initial speeds are independent discrete-uniform draws from $1$ through $M$.
-`Step` is initialized to one. The implementation rejects $N>2H$, requires
-exactly two lanes, and requires $H >= 2M+1$.
+Third, the declared dependencies make coupling between processes inspectable.
+A read of another system's output establishes a possible ordering requirement;
+overlapping writes identify a need for sequencing, reduction, or arbitration;
+and disjoint outputs with read-only shared inputs identify candidates for
+independent evaluation. These declarations also supply useful testing
+boundaries: a system can be tested on a constructed world state, its permitted
+outputs can be checked, and invariants can be examined at phase boundaries.
+Read and write sets are conservative access summaries, however, not a proof of
+scientific correctness. They reveal which state a system may use or alter, but
+not whether its behavioral equation, information set, or placement in the
+schedule is substantively justified.
 
-The reported capability experiments override the entry probabilities according
-to treatment. All three traffic-response capabilities are present
-($q_S=q_O=q_A=1$). A pure Habit, Convention, or SocialHabit treatment sets the
-corresponding acquired capability probability to one and the other two to zero.
-Mixture treatments set $q_H=q_C=q_Z=0.5$. They use 5,000 ticks, discard the
-first 1,000, set $ell=20$, and retain the other values above.
+Locating behavior in systems does not remove agency from the scientific model.
+An agent remains an identifiable unit to which the model attributes private
+information, goals, dispositions, memory, feasible actions, and consequences.
+Those entity-specific quantities reside in components; a system implements the
+transition law shared by entities that currently possess the state required by
+that law. Autonomy is therefore a property of the modeled information and
+decision structure, not of whether executable behavior is stored in a method
+attached to an object. Highly individualized cognition may still be represented
+through entity-specific policy state or specialized components, although in
+such models a system-oriented decomposition can make the complete behavior of
+one agent harder to inspect in one place.
 
-=== Bounded local observation
+The architectural gain is the alignment between state composition and process
+organization. A component has a dual role: it contributes to the state of an
+individual entity and makes that entity eligible for systems requiring it.
+System read and write sets extend the same contract into the schedule. The
+modeler can therefore move from “which agents possess this capability?” to
+“which process uses it, what state does that process observe, and when do its
+effects become visible?” without translating between a type hierarchy, an
+activation routine, and a separate dependency description.
 
-At the beginning of tick $t$, the model rebuilds a two-dimensional occupancy
-array from committed positions. Driver $i$ observes both lanes at forward
-distances $k=1,dots,min(ell, H-1)$, where forward means adding $k d_i$ modulo
-$H$. The driver's current longitudinal row ($k=0$) is excluded. Other drivers'
-traits, memories, LR values, and current proposals are never observable.
+== Interaction phases and concurrency
 
-For co-directional cars let $n_i^S$ be the number observed and $n_i^(upright("SL"))$ the
-number on the left relative to $i$'s direction. Define
+The phase semantics defined in @sec:time become executable in ECS through
+queries, proposal state, system read and write sets, and explicit resolution
+systems. A system proposal need not correspond to an independently elapsed
+instant or an immediately visible change: its temporal meaning follows from
+the phase in which its query is evaluated and the boundary at which its effects
+are committed.
 
-$ upright("SL")_i = cases(0.5 & "if " n_i^S=0, n_i^(upright("SL"))/n_i^S & "otherwise"). $
+The common snapshot also separates proposal production from conflict
+resolution. Proposal functions can be evaluated concurrently when they treat
+$W_(n,p)$ as immutable and write to isolated proposal state. Their eventual
+effects may still conflict; `resolve` must then define which proposals succeed,
+how joint quantities are aggregated, and which changes enter $W_(n,p+1)$. A
+stable resolution rule is part of the model, not merely a synchronization
+detail. In synchronous Sugarscape movement, for example, all destination
+proposals are fixed before contenders for the same cell are resolved, and no
+citizen wins merely because its proposal was computed first.
 
-Define $upright("OL")_i$ analogously for opposing cars. Its left/right classification is
-also relative to the observing driver. Let $upright("CL")_i$ and $upright("CR")_i$ be counts of all
-cars, irrespective of direction, observed on the relative left and right at
-distances $k <= M$. These are counts rather than proportions.
-
-Convention observes what side other drivers selected in their own frame of
-reference. If $O_i$ is the set of observed cars, the current convention sample
-is
-
-$ bar(c)_i = 1/abs(O_i) sum_(j in O_i) r(x_j,d_j). $
-
-It is undefined when $O_i$ is empty. Notice the distinction: $upright("SL")_i$ and $upright("OL")_i$
-classify lanes relative to the observer, whereas $bar(c)_i$ evaluates each
-observed car relative to that car's own direction.
-
-SocialHabit does not observe cars' success directly. The environment stores a
-signed trace field $T_t(x,y) in [-1,1]$. The observation window samples every
-cell whose absolute trace is at least $10^(-8)$, whether or not it is currently
-occupied, and computes their arithmetic mean $bar(T)_i$. No sample is produced
-when the window contains no trace above the cutoff.
-
-=== Convention and SocialHabit learning
-
-Learning occurs after observation and before the current LR is calculated, so
-both mechanisms use committed positions and the trace field left by earlier
-ticks. For a Convention carrier with at least one observed car, draw the
-standard-normal variate $xi_i^C$ and calculate
-
-$ tilde(c)_i = upright("clip")(bar(c)_i + sigma_i^C xi_i^C,-1,1), $
-$ C_i' = upright("clip")((1-alpha_i^C) C_i + alpha_i^C tilde(c)_i,-1,1), $
-$ rho_i' = upright("clip")((1-alpha_i^C) rho_i + alpha_i^C,0,1). $
-
-If no car is observed, both $C_i$ and confidence $rho_i$ remain unchanged.
-For a SocialHabit carrier with at least one trace sample, independently draw the
-standard-normal variate $xi_i^Z$ and update
-
-$ tilde(T)_i = upright("clip")(bar(T)_i + sigma_i^Z xi_i^Z,-1,1), $
-$ Z_i' = upright("clip")((1-alpha_i^Z) Z_i + alpha_i^Z tilde(T)_i,-1,1). $
-
-Without a trace sample, $Z_i$ is unchanged. SocialHabit has no separate
-confidence state. Convention therefore builds a history over other drivers'
-realized side choices; SocialHabit builds a history over an environmental,
-vanishing record of successful movement.
-
-=== Lane-response equation
-
-After learning, every lane score is reset to zero. A system contributes to a
-driver's score only when the corresponding component is present. Separate the
-traffic-response and acquired-disposition terms as
+Read and write declarations give a conservative condition for systems that can
+be applied independently without a separate joint resolver. For distinct
+systems $j$ and $k$, the absence of the conflicts
 
 $
-  B_i = chi_i^S w_S s_i (2 upright("SL")_i - 1)
-  - chi_i^O w_O o_i (2 upright("OL")_i - 1)
-  + chi_i^A w_A a_i (upright("CR")_i - upright("CL")_i),
+  upright("Write")_j inter
+  (upright("Read")_k union upright("Write")_k) = emptyset,
+  quad
+  upright("Write")_k inter
+  (upright("Read")_j union upright("Write")_j) = emptyset
 $
 
-$
-  A_i = chi_i^H w_H h_i H_i
-  + chi_i^C w_C rho_i C_i
-  + chi_i^Z w_Z z_i Z_i,
-$
+means that neither can change an input or output of the other. Subject to the
+declared accesses being complete, their transitions commute and their
+evaluation order cannot affect the successor state. Shared read-only inputs do
+not create a conflict. Because the declarations operate at the component or
+resource level, this test is sufficient but not necessary: two systems may
+write the same component type on provably disjoint entity sets, and
+commutative reductions may permit controlled overlapping contributions. Such
+cases require a more precise partition, reduction rule, or arbitration step
+rather than an uncoordinated shared write.
 
-and set $upright("LR")_i=B_i+A_i$.
+Determinism additionally requires the proposal and resolution functions to be
+independent of runtime scheduling. A shared mutable random-number generator is
+a write dependency: allowing concurrent systems to draw from it in an
+unspecified order can assign different shocks to different entities. Random
+draws must therefore be deterministically partitioned or indexed by replicate,
+phase, entity, and event when results are intended to remain invariant to
+thread scheduling. Reductions require similar care, because an unspecified
+accumulation order can change floating-point results even when the mathematical
+operator is associative. Fixed partitions, stable tie-breaking, and explicit
+reduction orders make these choices reproducible. Formal accounts of Core ECS
+likewise identify classes of programs whose outcomes are independent of system
+scheduling, establishing deterministic concurrency as a property that can be
+derived from restrictions on system effects rather than assumed from the ECS
+label alone @redmondExploringTheoryPractice2025.
 
-A positive score selects left relative to travel direction and a negative score
-selects right. An exact zero preserves the driver's currently realized relative
-side. After this deterministic choice, the side is reversed with probability
-$epsilon$. Clockwise drivers map relative left/right to absolute lanes one/two;
-counterclockwise drivers map them to lanes two/one. The stored `LR` is the
-unperturbed score, not the error-flipped action.
+ECS therefore exposes opportunities for concurrency but does not eliminate
+interaction dependencies. Systems that contend over shared resources or
+entity state still require ordering, buffering, reduction, or arbitration, and
+phase barriers introduce synchronization costs. Whether concurrent evaluation
+produces a speedup depends on the amount of independent work relative to those
+costs. More importantly, the dependency graph can preserve only semantics that
+have first been declared: ECS cannot decide whether agents should act
+simultaneously, which conflicts should be resolved together, or when learning
+should observe an outcome. Those remain scientific commitments of the model.
 
-The three acquired capabilities thus have the same downstream function but
-different information sources: each adds one term to LR. Habit is personal lane
-history, Convention is local history of other drivers' choices, and
-SocialHabit is local history over decaying success traces.
+== Data-oriented engineering consequences
 
-=== Speed choice and private path construction
+Component composition is a logical description of model state; component
+storage is its physical realization. The distinction matters because an ECS
+could store each entity as a map from component type to value, while a
+record-based agent population could be transformed internally into a
+structure-of-arrays layout. Neither representation alone establishes a
+performance result. The engineering opportunity arises when the logical
+component signature is also used to organize storage and execution.
 
-For candidate lane $lambda in {1,2}$ and speed $v in {1,dots,M}$, construct a
-three-position path. At micro-step one the car moves one longitudinal cell and
-enters $lambda$; at each subsequent micro-step up to $v$ it advances one more
-cell in the same lane; after micro-step $v$ it remains at its final position.
+In an array-of-structures layout, consecutive memory locations contain complete
+agent records. A population sweep that uses only position and speed still
+traverses records containing every other field and may load cache lines filled
+partly with unused state. A component-oriented layout stores values of the same
+component together, or groups entities with the same signature into archetype
+tables whose columns are component arrays. A system query can then produce
+batches in which the required columns are contiguous and the same kernel
+applies to every selected row.
 
-The safety screen is bounded in what it predicts. Driver $i$ extrapolates every
-other car $j$ by assuming that $j$ keeps its currently committed lane and
-current speed. It does not inspect $j$'s lane or speed proposal. The current
-implementation loops over all other cars rather than applying the observation
-horizon, although with zero clearance only cars whose three-step paths can
-intersect can reject the candidate. A candidate is rejected if, at any aligned
-micro-step, its path and an extrapolated path:
+This is where the three modeling dimensions can inform execution. The component
+requirements that give a citizen a behavioral role also select the tables
+traversed by the corresponding system. Its read and write declarations identify
+the columns that must be available and the conflicts relevant to concurrent
+scheduling. The engine need not rediscover those populations and dependencies
+from branches inside a complete agent step. Homogeneous inner loops can
+consequently load less irrelevant state, admit vectorization, and be partitioned
+across CPU threads. Where component arrays are regular and interactions can be
+expressed through bounded messages or staged kernels, the same batches can be
+transferred to GPU execution.
 
-- occupy the same cell;
-- exchange cells across an edge; or
-- start on the same longitudinal row and cross diagonally while exchanging
-  lanes.
+These gains depend on workload. Small populations may not amortize query and
+dispatch overhead. Adding or removing a component can move an entity between
+archetypes and copy its state. Sparse signatures can fragment batches, while
+branch-heavy cognition and tightly coupled interactions reduce vector and GPU
+utilization. Phase barriers, reductions, and conflict resolution can dominate
+the component sweeps they coordinate. Component-oriented storage can also make
+the complete state of one individual less convenient to inspect even when it
+makes population operations clearer.
 
-If $gamma>0$, define the integer clearance
-$g(v)=ceil(gamma(v-1))$. A candidate is additionally rejected whenever both
-paths occupy the same lane at an aligned micro-step and their minimum circular
-longitudinal separation is at most $g(v)$. Clearance depends on the focal
-candidate's speed and is zero under the default treatment.
+Storage performance must therefore be evaluated independently of the three
+research questions. A valid benchmark holds the modeled transition fixed while
+varying layout and execution policy; it then separates serial data-layout
+effects from thread scaling and from the cost of queries, structural changes,
+synchronization, and resolution. The secondary engineering evaluation asks when
+the alignment offered by ECS pays for these costs, not whether the ECS label
+alone guarantees faster execution.
 
-The default action search is lexicographic and speed-first:
+= Comparative Case Study: Sugarscape
+
+== Why Sugarscape
+
+Sugarscape is a canonical agent-based model in which heterogeneous citizens
+move across a spatial resource landscape, harvest sugar, consume it through
+metabolism, accumulate unequal wealth, and die from starvation or old age
+@epsteinGrowingArtificialSocieties1996. The repository implements the
+single-resource wealth-distribution model on a toroidal, two-hill landscape and
+adds optional sexual reproduction and disease.
+
+The model is especially suitable for the three research questions. Vision,
+metabolism, initial endowment, and maximum age provide parametric
+heterogeneity. `Female` and `Male` tags provide mutually exclusive nominal
+roles. Infection is a genuinely dynamic structural role: transmission adds an
+`Infection` component, recovery removes it, and the same citizen may remain in
+the world throughout that change. Reproductive eligibility is instead derived
+from sex, age, wealth, and neighborhood state. Sugarscape therefore lets the
+comparison distinguish a role represented by component presence from a
+temporary role selected by predicates over ordinary state.
+
+Its mechanisms also operate at different population scales. Movement combines
+individual choice with competition for cells and resources; disease couples
+neighboring citizens; lifecycle rules remove entities; reproduction matches
+eligible parents and creates offspring; and resource growback transforms the
+environment. Finally, the implementation provides both shuffled-sequential and
+staged synchronous movement. It can therefore separate behavior organization
+from schedule semantics while producing substantively interpretable outcomes
+such as wealth inequality, mortality, population change, and infection
+prevalence.
+
+== Scientific model and extension boundary
+
+The baseline landscape is a finite toroidal grid. Each patch has a fixed sugar
+capacity and a current stock that grows toward that capacity by a constant
+amount each period. A citizen observes cells in the four cardinal directions up
+to its vision, excludes cells occupied by another citizen, and chooses among
+the cells with the greatest current sugar. Distance breaks sugar ties and the
+seeded model RNG resolves any remaining tie. After moving, the citizen harvests
+all sugar at its destination. Metabolism and ageing then reduce wealth and
+remaining lifetime; starvation or old age removes the citizen.
+
+The default wealth-distribution treatment replaces every death with a newly
+initialized citizen and disables reproduction and initial infection. The
+heterogeneous extension instead permits reproduction and disease. Replacement
+and reproduction are mutually exclusive regeneration regimes. Reproduction
+matches an eligible female with an adjacent eligible male, reserves an empty
+neighboring cell, transfers parental endowment to one child, and independently
+inherits vision, metabolism, and maximum age from either parent. Disease uses
+one active `UInt64` strain per infected citizen. Cardinal contact can transmit
+the strain to a nonimmune neighbor, infection imposes a sugar cost, and recovery
+stores exact-strain immunity before removing the `Infection` component. This is
+a bounded extension for architectural comparison, not a reproduction of every
+mechanism in the original Sugarscape.
+
+== Semantics-matched agent-centered reference
+
+The repository currently contains the ECS implementation. A valid comparative
+study must add an idiomatic agent-centered reference of the same scientific
+model before drawing conclusions for RQ1 or RQ2. That reference should use one
+mutable citizen record containing identity, position, proposal, traits, wealth,
+age, sex, immunity, and an optional infection state. Model-level landscape,
+occupancy, event counters, clock, and seeded RNG should remain explicit shared
+state. Movement, transmission, lifecycle, and reproduction may be implemented
+as ordinary functions reached from citizen activation and model-level
+coordination; the reference should not be weakened through an artificial class
+hierarchy.
+
+The two implementations must share parameters, initial landscape and
+population, indexed random draws, decision and conflict rules, phase semantics,
+and logger schema. Deterministic fixtures should compare complete world states
+after every phase. Only state representation and the route by which shared
+transition laws are reached may differ in the architecture treatments. This
+constraint prevents the current ECS implementation from being compared with an
+agent-centered model that implements different movement, disease, or
+reproduction semantics.
+
+== From agent records to ECS
+
+=== State composition
+
+In the ECS implementation, a citizen is an entity with the core components
+`CitizenId`, `Position`, `ProposedPosition`, `Vision`, `Metabolism`, `Sugar`,
+`Age`, `MaximumAge`, `InitialEndowment`, and `ImmuneProfile`. Exactly one of the
+zero-sized `Female` and `Male` tags records sex. `Infection` is optional and
+contains the active strain and infection age. Landscape sugar, occupancy, the
+seeded RNG, clock, next identifier, step events, parameters, and logger are
+resources because they describe the world or the run rather than one citizen.
+
+The shift is not merely a decomposition of record fields into smaller records.
+Component presence participates in the model definition. Adding `Infection`
+moves a citizen into the population processed by infection progression;
+removing it on recovery removes that citizen from the query while retaining
+identity and all unrelated state. A female citizen may simultaneously be
+infected, fertile, wealthy, or close to death without requiring a
+combination-specific citizen type. Sex and infection are represented
+structurally, whereas fertility and mortality risk are computed from component
+values. This mixed representation makes explicit which roles require stored
+state and which are transient classifications.
+
+In the agent-centered reference, the same transition can be represented by
+changing an optional field within the citizen record. The comparison should
+therefore ask where the schema change, validation, initialization, mutation,
+logging, and downstream selection logic reside in each architecture. It should
+not treat dynamic composition as impossible in an agent record.
+
+=== Behavior organization
+
+Sugarscape's period is decomposed into systems with focused population and
+resource contracts:
+
++ `growback!` updates the landscape independently of citizen state.
++ movement either activates shuffled citizens sequentially or separates
+  proposal from conflict resolution and commitment.
++ `disease!` snapshots infectious neighbors, stages new infections, charges the
+  disease cost, and stages recovery.
++ `lifecycle!` metabolizes and ages citizens, stages deaths, removes them, and
+  optionally creates replacements.
++ `reproduce!` first plans compatible births and reserves cells, then deducts
+  parental contributions and creates offspring.
++ `logger!` records population, wealth, resource, movement, mortality,
+  reproduction, and disease outcomes.
+
+This organization makes population mechanisms directly inspectable: their
+queries identify participants, their resource accesses identify shared inputs,
+and structural changes are committed after query traversal. The same
+decomposition creates substitution boundaries. Sequential and synchronous
+movement can share destination selection; alternative transmission or
+inheritance rules can retain unrelated lifecycle and landscape systems when
+they honor the same state contract. The agent-centered reference may achieve
+the same modularity through functions and helper objects. RQ2 concerns how
+naturally each architecture exposes and reuses these boundaries, not whether
+only ECS can modularize behavior.
+
+=== Schedule semantics
+
+One ECS period has the declared order
 
 ```text
-for speed = M, M-1, ..., 1
-    for lane = (LR-selected lane, other lane)
-        choose and stop at the first action passing the safety screen
+grow back sugar
+  -> rebuild occupancy
+  -> move and harvest
+  -> transmit and progress disease
+  -> metabolize and age
+  -> remove deaths and optionally replace them
+  -> plan and commit births
+  -> advance the clock and log
 ```
 
-The optional lane-first treatment reverses the loop nesting: it exhausts speeds
-on the LR-selected lane before considering the other lane. If no candidate
-passes, the submitted fallback is speed one on the LR-selected lane even though
-it is not certified safe. Screening cannot guarantee collision-free movement:
-all drivers screen against lagged observable motion, while actual proposals are
-formed simultaneously.
+Several dependencies are scientific rather than incidental. Growback precedes
+choice because citizens observe the replenished landscape. Movement precedes
+transmission because contact uses post-movement positions. Disease precedes
+lifecycle because its sugar cost can cause starvation in the same period.
+Removal precedes reproduction because death changes parent eligibility and
+available cells. Logging follows all commits so it describes the successor
+state.
 
-=== Synchronous conflict resolution
+Movement supplies the main schedule treatment. Under shuffled-sequential
+movement, the model RNG orders citizens; each citizen immediately vacates its
+origin, selects among currently available cells, moves, and harvests. Later
+citizens therefore observe earlier movements and depleted patches. Under
+synchronous movement, every proposal is calculated from the same occupancy and
+landscape state. A citizen cannot target a cell occupied at the beginning of
+the movement phase, even if its occupant proposes leaving. When several
+citizens propose the same initially empty cell, seeded random arbitration
+selects one winner; losers remain at their origins. Only after resolution are
+positions, wealth, landscape stocks, and occupancy committed.
 
-After every proposal is fixed, conflict resolution uses the submitted paths,
-not the extrapolations used by the safety screen. Cars are ordered by stable
-entity identifier and marked active. For micro-steps $m=1,2,3$:
+Alternative execution orders preserve outcomes only under declared conditions.
+Within a phase, systems or entity kernels may be reordered when their complete
+read/write sets are conflict-free, query membership is stable until the phase
+boundary, resolution is deterministic, and random draws and reductions do not
+depend on runtime order. The current model uses one shared RNG, so arbitrary
+system reordering is not outcome-preserving unless draws are first partitioned
+or indexed by phase, entity, and event. Reordering growback after movement,
+disease after lifecycle, or reproduction before removal changes information
+visibility and implements a different model rather than an optimization.
 
-+ Determine position $p_i^m$ for every currently active car.
-+ Mark every car sharing a cell with another active car.
-+ Mark both cars in every exact edge swap or diagonal lane crossing between
-  $p_i^{m-1}$ and $p_i^m$.
-+ Remove all newly marked cars from the active set before the next micro-step.
+== Comparative treatments and evidence
 
-All marked cars die; there is no winner for a contested cell. A car killed at an
-early micro-step cannot cause a later conflict. Survivors commit their final path
-position, adopt the proposed speed, and increment `Step` by one. Killed entities
-are removed only after their travel directions have been recorded for
-replacement.
+The main comparison should use a common set of deterministic fixtures and
+paired-seed experiments.
 
-=== Successful-driver traces and personal Habit
++ *RQ1:* Compare the record field and optional-state representation with
+  component tags and dynamic `Infection` attachment. Trace infection,
+  recovery, birth, death, and the addition of one further optional capability
+  through state definition, initialization, modification, selection, and
+  logging.
++ *RQ2:* Compare the locality, reuse, substitutability, and inspectability of
+  movement, transmission, lifecycle, and reproduction. Include both the view
+  of one population mechanism and the countervailing task of reconstructing
+  one citizen's complete behavior.
++ *RQ3:* Contrast shuffled-sequential and synchronous movement to measure the
+  consequences of visibility and commitment timing. Separately permute only
+  dependency-admissible systems or kernels and verify complete trajectory
+  equality under indexed randomness and deterministic reductions.
 
-Trace updating occurs after failed drivers are removed and before replacements
-enter. First multiply the complete trace field by retention $rho$ and set values
-with magnitude below $10^(-8)$ to zero. Every surviving driver then deposits
-$D r(x_i,d_i)$ at every cell it actually traversed, once per completed
-micro-step up to its committed speed. Each addition is clipped to $[-1,1]$.
-Failed drivers leave no trace, stopped path padding leaves no trace, and newborns
-leave no trace on entry.
+The primary scientific outcomes are population size, mean and median wealth,
+the Gini coefficient, total citizen and landscape sugar, movement and harvest
+counts, contested destinations, deaths by cause, replacements, births,
+infection prevalence, new infections, and recoveries. Architecture comparisons
+must first establish state and outcome equivalence for the semantics-matched
+implementations. Schedule treatments intentionally need not be equivalent; they
+should report how timing changes inequality, resource access, survival,
+population dynamics, and disease spread.
 
-After replacement, Habit carriers that survived the tick update their personal
-state. Let $a_i$ be `Step` after its successful increment. Then
+#let sugarscape_model_specification = [
+  == Purpose, entities, environment, and scale
 
-$ H_i' = upright("clip")(H_i + r(x_i,d_i)/(K+a_i),-1,1). $
+  The model studies how local movement and harvesting on a regenerating,
+  spatially unequal resource landscape generate a distribution of wealth, and
+  how reproduction and disease alter that distribution. Citizens are agents;
+  sugar patches form a toroidal environment. One application of the declared
+  schedule advances one discrete period.
 
-Newborns have `Step` equal to one and skip this update. Consequently Habit is
-the Hodgson--Knudsen age-dependent disposition generated only by the driver's
-own realized side and successful lifetime. Convention and SocialHabit are not
-updated by this equation.
+  == State and initialization
 
-=== Collision replacement and evolution
+  Core citizen state comprises identity, position, proposal, vision,
+  metabolism, sugar, age, maximum age, initial endowment, sex, and immune
+  profile. `Infection` is optional. Setup places the requested population in
+  distinct cells using the seeded RNG and initializes a deterministic two-hill
+  capacity landscape unless a nonnegative capacity matrix is supplied.
 
-Every killed driver produces one replacement request carrying only its travel
-direction. Replacements are shuffled and placed uniformly without replacement
-among cells left empty after conflict resolution. Their initial speed is drawn
-uniformly from $1,dots,M$, their acquired states are zero, and `Step` is one.
+  The default parameters use a $50 times 50$ grid, 400 citizens, patch
+  capacity four, growback one, vision one to six, metabolism one to four,
+  initial sugar five to 25, and lifespan 60 to 100 periods. The baseline
+  replaces deaths. Reproduction and infection are disabled unless explicitly
+  enabled.
 
-Under `EntryDrawReplacement`, each optional capability is redrawn independently
-with its entry probability $q_k$. Present response/disposition traits
-$s_i,o_i,a_i,h_i,z_i$ receive fresh $cal(N)(1,delta^2)$ draws; Convention and
-SocialHabit learning/noise parameters receive their configured entry values.
-This is the default and keeps entry composition exogenous.
+  == Process overview
 
-Under `EvolutionaryReplacement`, the parent pool is the set of survivors before
-any newborn is created. Each newborn selects one parent uniformly with
-replacement. For every optional capability, presence is toggled independently
-with probability $mu$: a present capability is lost, while an absent capability
-is gained only when its configured entry share is nonzero. If presence is not
-toggled and the capability is present, each continuous trait receives an
-independent $cal(N)(0,sigma_m^2)$ perturbation. Nonnegative traits are truncated
-at zero; learning rates are clipped to $[0,1]$. An empty survivor pool falls
-back to an entry draw. The newborn inherits neither $H_i$, $C_i$, $rho_i$, nor
-$Z_i$. Evolution therefore transmits capability structure and stable traits,
-not acquired experience. In both replacement regimes, the newborn takes the
-direction of the driver whose collision created the request, so directional
-population counts remain fixed.
+  Each period grows patch sugar, rebuilds occupancy, executes one of the two
+  movement schedules, processes disease, metabolizes and ages citizens, removes
+  deaths, creates replacements or offspring as configured, advances the clock,
+  and records aggregate outcomes. All stochastic choices use the seeded model
+  RNG. Structural additions and removals are staged and committed between
+  queries.
 
-=== Complete tick schedule and system dependencies
+  == Movement and harvesting
 
-The exact update schedule is:
+  A citizen considers its current cell and cardinal cells up to its vision on
+  the torus. Occupied cells are ineligible except for its own current cell. It
+  maximizes current patch sugar, minimizes distance among equal-sugar cells,
+  and uses the RNG for remaining ties. The destination is harvested to zero and
+  its sugar is added to citizen wealth.
 
-```text
-1. copy committed positions to previous-position state
-2. rebuild occupancy from committed positions
-3. observe traffic and the previous trace field
-4. update Convention and SocialHabit memories
-5. reset and sum capability-specific LR contributions
-6. select the relative side, apply decision error, and propose a lane
-7. screen lane-speed actions and store three-micro-step paths
-8. resolve submitted paths synchronously and remove failed drivers
-9. decay the trace field and deposit traces from surviving paths
-10. create entry-draw or evolutionary replacements
-11. update personal Habit for surviving Habit carriers
-12. rebuild occupancy, update aggregates, and log the committed state
-```
+  Sequential movement updates occupancy and landscape sugar after each citizen.
+  Synchronous movement freezes them for proposal, groups proposals by
+  destination, selects one winner for each contested cell, commits winners and
+  nonmoving losers, and rebuilds occupancy.
 
-#table(
-  columns: (1.35fr, 1.55fr, 1.75fr),
-  inset: 5pt,
-  align: (left, left, left),
-  table.header([*Phase*], [*Principal reads*], [*Writes or structural effects*]),
-  [Snapshot and observation],
-  [Positions, directions, occupancy, traces, horizon],
-  [`PrevPosition`, occupancy, `LocalObservation`],
+  == Disease, lifecycle, and population regeneration
 
-  [Learning and LR], [Observations, optional traits, acquired states], [$C_i,rho_i,Z_i$, score, `LR`, lane proposal],
-  [Speed proposal], [Current motion, lane proposal, speed policy], [Speed proposal and private path],
-  [Conflict resolution], [All submitted paths], [Survivor positions/speeds/ages; remove failed entities],
-  [Trace update], [Surviving paths and directions], [Environmental trace resource],
-  [Replacement],
-  [Requests, free cells, entry shares or survivor genomes],
-  [Create newborn entities and component signatures],
+  Disease transmission uses cardinal post-movement neighbors. A susceptible
+  citizen with no exact-strain immunity may acquire one neighboring strain.
+  Infection age and sugar cost update in the same period; reaching the disease
+  duration stores strain immunity and removes `Infection`.
 
-  [Habit and logging], [Committed survivor sides and ages], [$H_i$, occupancy, aggregate time series],
-)
+  Metabolism subtracts the citizen's metabolic rate and age increases by one.
+  Nonpositive sugar causes starvation; age above maximum age causes old-age
+  death. Removed citizens are replaced only in the replacement regime.
+  Otherwise, when reproduction is enabled, an eligible adjacent female-male
+  pair may reserve an empty neighboring cell and contribute half of each
+  parent's initial endowment to a child. The child independently inherits
+  vision, metabolism, and maximum age from either parent and receives a sex tag.
 
-The two occupancy rebuilds are semantically distinct. The first freezes the
-common information state used for decisions; the second makes the post-movement,
-post-replacement state available to diagnostics and the next tick. Convention
-and SocialHabit learning must precede current proposals, whereas personal Habit
-must follow realized movement.
+  == Recorded outcomes
 
-=== Recorded outcomes
+  The logger records population, mean and median wealth, the Gini coefficient,
+  mean age, total citizen sugar, total landscape sugar, movements, conflicts,
+  harvested sugar, deaths by cause, replacements, births, infection prevalence,
+  incident infections, and recoveries. Complete citizen snapshots provide
+  deterministic state-level comparisons between implementations and schedules.
+]
 
-The principal convention statistic is
-
-$ Q_t = abs(1/N sum_(i=1)^N r(x_i (t), d_i)). $
-
-$Q_t=1$ means all drivers use the same relative side and $Q_t=0$ is a balanced
-population. Experiments additionally report the fraction of post-burn-in ticks
-with $Q_t >= 0.8$, first passage to that threshold, coordinated-episode lengths,
-mean speed, replacement count per car-step, acquired-disposition magnitudes,
-final marginal shares of the optional mechanism components, and the effective
-number of structural component profiles
-
-$ D_t = exp(-sum_(x in {0,1}^6) pi_t (x) log(pi_t (x))), $
-
-Here $pi_t$ is evaluated over the six optional mechanism components. Their
-presence uniquely determines the associated optional state components in this
-model; the convention $0 log(0)=0$ is used.
-A replacement in the logger is identified by
-`Step == 1`, which is equivalent to a collision death because population size is
-constant and every death is replaced within the same tick.
-
-== Contrast with the sequential reference
-
-#table(
-  columns: (1.05fr, 1.75fr, 1.75fr),
-  inset: 5pt,
-  align: (left, left, left),
-  table.header([*Feature*], [*Sequential reference*], [*Capability model*]),
-  [Software organization],
-  [One `Car` record contains state and all traits],
-  [Entity plus mandatory and optional components selected by systems],
-
-  [Decision timing],
-  [Stable-ID activation; later cars observe earlier movements],
-  [All cars observe one committed state and submit before resolution],
-
-  [Movement], [Exactly one longitudinal cell per tick], [One to three cells in three synchronous micro-steps],
-  [Observation window],
-  [Includes the current row and looks forward $ell$ cells],
-  [Excludes current row and looks forward $ell$ cells],
-
-  [Near field], [Distances zero through two], [Distances one through $M$],
-  [Lane equation],
-  [Same, opposite, avoidance, and optional Habit terms],
-  [Same core terms plus independently optional Habit, Convention, and SocialHabit],
-
-  [Safety choice],
-  [No pre-screen; move directly to intended one-step cell],
-  [Current-motion path screen before simultaneous proposals are resolved],
-
-  [Collision],
-  [Same destination, swap, or diagonal crossing after one-cell movement],
-  [Same conflicts at every movement micro-step],
-
-  [Habit],
-  [Every survivor updates own-side habit; $w_H$ controls its effect on LR],
-  [Update applies only to entities carrying `HabitFormation`],
-
-  [Replacement], [Fresh four-trait entry draw], [Independent entry draw or survivor inheritance with mutation],
-)
-
-The repository also contains a simultaneous activation treatment of the
-agent-centered reference, in which all one-step intentions are calculated from
-a frozen state before commitment. It isolates activation timing while retaining
-the reference agent representation. It should not be conflated with
-`CapabilityModel`, which simultaneously changes component composition, speed,
-observation, safety screening, collision resolution, and replacement options.
-
-== Forecast-and-control extension
-
-Use the existing occupancy-strategy analysis as evidence that separating prediction from choice makes behavioral mechanisms independently substitutable. Focus the main text on:
-
-- Naive current-lane prediction.
-- Two-frame temporal-consistency prediction.
-- Iterated decision-aware prediction.
-
-The remaining strategies can be a compact robustness table or appendix. Emphasize that a predicted state affects decisions and therefore changes the state being predicted: these are forecast-and-control policies, not passive forecasts.
-
-= Comparative Evaluation
+= Evaluation Design
 
 == Evaluation logic
 
-The paper cannot prove an architectural advantage from one attractive code example. Combine a design comparison, behavioral experiments, and performance measurement.
+The paper cannot establish an architectural advantage from one attractive code
+example. Each research question therefore receives a distinct treatment and
+evidentiary standard.
 
 #table(
-  columns: (1.1fr, 1.6fr, 1.7fr),
-  inset: 6pt,
-  align: (left, left, left),
-  table.header([*Claim*], [*Evidence*], [*Threat to address*]),
-  [Compositional heterogeneity],
-  [Add and remove capabilities without defining combination-specific types],
-  [Idiomatic OOP can also use composition],
+  columns: (0.42fr, 1.25fr, 1.55fr, 1.45fr),
+  inset: 5pt,
+  align: (left, left, left, left),
+  table.header([*RQ*], [*Treatment*], [*Evidence*], [*Inference*]),
+  [RQ1],
+  [Semantics-matched implementations; sex, fertility, and infection roles; infection attachment and recovery],
+  [State representation and modification paths across the same model transition],
+  [Effects on representing and changing roles, not an inability of agent objects to compose],
 
-  [System-centered modularity],
-  [Substitute mechanisms while sharing state and unrelated processes],
-  [Lines of code alone are a weak measure],
+  [RQ2],
+  [Organize the same mechanisms around systems or agent activation; substitute movement, transmission, reproduction, or resolution rules],
+  [Change locality, reused processes, shared contracts, boundary tests, and mechanism traces],
+  [Effects on locality, reuse, substitutability, and population-level inspectability],
 
-  [Natural simultaneous interaction],
-  [Derive staged formulation from system dependencies],
-  [Other ABM frameworks can also use buffers and phases],
-
-  [Parallel scalability], [Thread, memory, and possibly GPU benchmarks], [Interaction conflicts may dominate],
+  [RQ3],
+  [Declared phases; admissible reorderings; deliberately changed visibility and update timing],
+  [Trajectory equivalence, behavioral outcomes, and counterexamples when declared conditions fail],
+  [How schedules specify semantics and the conditions under which order preserves outcomes],
 )
 
-== Experiment A: Representing heterogeneity
+== Experiment A: State composition
 
-- Define a set of independent behavioral capabilities.
-- Construct populations with overlapping component signatures.
+- Implement the same state variables, mechanisms, schedule, parameters, and
+  seeded random draws in idiomatic agent-centered and ECS forms.
+- Construct matched populations with overlapping sex, fertility, and infection
+  roles and exercise infection attachment and removal at declared phase boundaries.
 - Add one new capability after both implementations are complete.
-- Compare the required changes to state definitions, behavior dispatch, initialization, logging, and analysis.
-- Report qualitative dependency changes and limited quantitative measures such as touched modules, duplicated transition logic, and combinations represented.
+- Compare how each architecture represents capability presence and performs a
+  role change, including state definitions, validation, initialization,
+  transition logic, logging, and analysis.
+- Report qualitative dependency changes and limited quantitative measures such
+  as touched modules, duplicated transition logic, and combinations represented.
 
 The conclusion should concern locality and composability, not the impossibility of implementing the same model with objects.
 
-== Experiment B: Substituting systems
+== Experiment B: Behavior organization and system substitution
 
-- Hold entities and unrelated processes constant.
-- Exchange prediction, learning, or conflict-resolution systems.
-- Verify that unaffected mechanisms are reused without conditional branches.
-- Use the existing strategy results to illustrate scientific experiments enabled by this separation.
+- Hold the scientific state, schedule, entities, and unrelated mechanisms
+  constant across the semantics-matched implementations.
+- Compare *locality* by tracing the code and declared dependencies that must
+  change for one population-level mechanism.
+- Compare *reuse* by identifying unchanged mechanism implementations shared
+  across capability profiles and experimental variants.
+- Compare *substitutability* by exchanging movement, transmission,
+  reproduction, or conflict-resolution rules under the same input/output
+  contract and testing the contract boundary.
+- Compare *inspectability* by asking whether a reader can recover a mechanism's
+  participants, inputs, outputs, and schedule position from its implementation;
+  separately report the ease of reconstructing one agent's complete behavior.
+- Use movement-mode, reproduction, and disease treatments to illustrate
+  scientific experiments enabled by mechanism separation.
 
-== Experiment C: Interaction semantics
+== Experiment C: Schedule semantics
 
-Compare fixed sequential, shuffled sequential, synchronous, and staged interaction only where they are scientifically meaningful. Hold behavioral equations and initial conditions constant. Measure:
+Use two distinct schedule comparisons. First, compare shuffled-sequential and
+synchronous movement; this identifies the consequences of changing information
+visibility, resource depletion, conflict resolution, and commitment timing.
+Second, hold the declared
+phase semantics fixed and execute multiple admissible topological orders of
+systems within each phase. For every proposed reordering, state the condition
+that is expected to preserve outcomes: complete read/write declarations,
+conflict-free effects or an explicit commutative reduction, stable query
+membership, schedule-independent random draws, deterministic conflict
+resolution, and a fixed reduction order where floating-point exactness is
+claimed. Compare complete trajectories, not only aggregate summaries, and add
+counterexamples in which a dependency or phase boundary is deliberately
+violated.
 
-- Convention strength and persistence.
-- Time to convention.
-- Collision events and removed agents.
-- Throughput or successful movements.
-- Sensitivity to density and capability composition.
+For schedule treatments that intentionally change semantics, hold behavioral
+equations and initial conditions constant and measure:
 
-This experiment supports the interaction argument; it should not displace the broader architectural contribution.
+- Mean and median wealth and the Gini coefficient.
+- Total citizen and landscape sugar and harvested sugar.
+- Movements, contested destinations, and deaths by cause.
+- Population, births, replacements, infection prevalence, and recoveries.
+- Sensitivity to density, resource regeneration, reproduction, and disease parameters.
 
-== Experiment D: Engineering performance
+This experiment distinguishes two claims: different visibility or update timing
+may change model outcomes, whereas alternative orders satisfying the declared
+independence conditions should preserve them.
+
+== Secondary engineering evaluation: Storage and execution
 
 Benchmark at least:
 
@@ -1214,7 +1379,9 @@ Report:
 - Time spent in queries, systems, structural changes, synchronization, and conflict resolution.
 - Hardware, software versions, compiler settings, and number of repetitions.
 
-Use both compute-light and interaction-heavy workloads. A synthetic component-sweep benchmark can isolate memory layout, but the traffic model must show end-to-end behavior.
+Use both compute-light and interaction-heavy workloads. A synthetic
+component-sweep benchmark can isolate memory layout, but Sugarscape must show
+end-to-end behavior under baseline, reproduction, and disease treatments.
 
 == Randomness, inference, and reproducibility
 
@@ -1231,63 +1398,56 @@ Use both compute-light and interaction-heavy workloads. A synthetic component-sw
   Organize results by research question, not by the order in which scripts were written. Each subsection should begin with a one-sentence answer, then show the evidence and its uncertainty.
 ])
 
-== RQ1: Compositional heterogeneity
+== RQ1: State composition
 
 - Report the number and distribution of component signatures used in the experiment.
-- Show how a capability is introduced or removed in both architectures.
+- Show how the same overlapping roles are represented and how a capability is introduced or removed in both architectures.
 - Report code-locality or dependency evidence without treating code size as scientific proof.
-- Analyze whether structural heterogeneity changes convention formation beyond parametric heterogeneity.
+- Separate architectural effects from scientific effects of changing the capability distribution.
 
-== RQ2: System-centered model organization
+== RQ2: Behavior organization
 
 - Present the system dependency graph.
 - Show which systems are reused across behavioral variants.
 - Report unit and integration tests at system boundaries.
-- Discuss whether the executable structure corresponds more directly to the published process description.
+- Compare locality, reuse, and substitutability against the semantics-matched agent-centered implementation.
+- Discuss both population-mechanism inspectability and the countervailing ease of inspecting one complete agent.
 
-== RQ3: Simultaneous and parallel interactions
+== RQ3: Schedule semantics
 
-- Compare sequential and staged semantics.
-- Quantify update-order sensitivity.
-- Show whether thread count changes results under a fixed declared semantics.
-- Report conflict frequency and resolution cost.
+- Compare schedules that intentionally expose different information or update timing.
+- For a fixed phased semantics, report trajectory equality across admissible system orders.
+- State the dependency, query-stability, randomness, resolution, and reduction conditions used for each equivalence claim.
+- Present counterexamples showing how outcomes change when a required ordering or phase boundary is removed.
 
-== RQ4: Engineering performance
+== Secondary engineering results
 
 - Separate data-layout gains from threading gains.
 - Show scaling curves rather than a single population size.
 - Identify cross-over points where ECS overhead becomes worthwhile.
 - Report workloads where ECS provides little or no advantage.
 
-== Supporting forecast-strategy results
-
-Current exploratory findings to preserve and later verify:
-
-- Decision-aware prediction produces the strongest survival and replacement outcomes among the tested policies.
-- Two-frame Naive provides a simpler improvement using only current-time information.
-- The ranking is robust across the tested densities and much of the behavioral-weight grid.
-- These findings demonstrate mechanism substitution and coupled forecast-and-control, not by themselves the superiority of ECS.
-
 = Discussion
 
-== The agent without an agent object
+== What the three answers jointly show
 
-Address whether ECS undermines autonomy. Proposed position:
+Synthesize the evidence rather than restating the architecture:
 
-- An agent is a scientific unit with identity, state, information, and possible actions.
-- A software object is only one implementation of that unit.
-- ECS externalizes shared transition laws while retaining entity-specific state.
-- Agency can therefore remain meaningful without behavior being stored in an object method.
+- RQ1 establishes how component signatures affect the representation and modification of overlapping and changing roles relative to an idiomatic agent-centered implementation of the same model.
+- RQ2 establishes how system boundaries affect the locality, reuse, substitutability, and inspectability of population-level mechanisms.
+- RQ3 establishes how dependencies and phase boundaries specify information visibility and update timing, and which declared conditions make alternative execution orders outcome-preserving.
 
-== What ECS changes for modelers
+The secondary engineering results should then report whether the same component
+and dependency information improves execution for the tested workloads without
+being presented as a fourth answer.
 
-- Model construction begins with processes and required state rather than a complete taxonomy of actors.
-- Heterogeneity can be expressed through overlapping capabilities.
-- Model mechanisms can be tested and substituted as systems.
-- Timing, conflicts, and dependencies must be made explicit.
-- The same explicitness can support deterministic concurrency and efficient batch execution.
+This synthesis should answer the agency question briefly. An agent remains a
+scientific unit with identity, private state, information, feasible actions,
+and consequences. A software object is one implementation of that unit; ECS
+externalizes shared transition laws without eliminating entity-specific state
+or scientifically meaningful autonomy.
 
-== What ECS does not solve
+== Where the alignment breaks down
 
 - It does not determine the scientifically correct timing semantics.
 - It does not make conflicting interactions automatically parallel.
@@ -1298,7 +1458,7 @@ Address whether ECS undermines autonomy. Proposed position:
 
 == Implications for economic ABMs
 
-Develop examples beyond traffic:
+Develop examples beyond Sugarscape:
 
 - A firm can acquire exporter, borrower, employer, or innovator capabilities without becoming a new nominal type for every combination.
 - A household can participate in labor, credit, housing, and consumption systems according to its current components.
@@ -1309,7 +1469,7 @@ These examples should remain implications unless they are implemented as additio
 
 == Threats to validity
 
-- One traffic model cannot establish universal architectural superiority.
+- One Sugarscape model cannot establish universal architectural superiority.
 - The agent-centered implementation may reflect author familiarity or framework-specific constraints.
 - The chosen ECS library may conflate the abstract pattern with a particular storage implementation.
 - Performance results may be hardware- and workload-specific.
@@ -1318,48 +1478,40 @@ These examples should remain implications unless they are implemented as additio
 
 = Conclusion
 
-Restate the intended conclusion cautiously:
-
 Entity Component Systems should be evaluated in ABM not only as a performance technique but as an alternative architecture for model specification. Their main scientific promise lies in representing heterogeneous agents as changing compositions of capabilities, organizing behavior as explicit population-level processes, and exposing the dependencies involved in simultaneous interactions. Cache-efficient storage and parallel execution are important consequences, but their benefits remain empirical and workload-dependent.
 
-The final paragraph should identify the next research step: application to a larger economic model with multiple institutional roles and endogenous changes in agent capabilities.
+The next research step is to test this alignment in a larger economic model
+with multiple institutional roles and endogenous changes in agent capabilities.
 
-= Appendix Roadmap
+#set heading(numbering: "A.1")
+#counter(heading).update(0)
 
-== Complete ODD description
+= Complete ODD description <sec:odd-appendix>
 
-- Purpose and patterns.
-- Entities, state variables, and scales.
-- Process overview and scheduling.
-- Design concepts.
-- Initialization.
-- Input data.
-- Submodels and equations.
+#sugarscape_model_specification
 
-== Architecture comparison
+= Supplementary architecture comparison
 
 - Full agent-centered pseudocode.
 - Full ECS system table with queries, reads, writes, and structural changes.
 - Dependency graph and execution phases.
-- Definition of every architecture-specific deviation.
 
-== Parameters and experimental design
+= Supplementary experimental design
 
-- Default parameters and scientific interpretation.
-- Capability-composition treatments.
-- Density, horizon, and sensitivity grids.
+- Infection-role and reproduction treatments.
+- Density, resource, horizon, and disease-parameter grids.
 - Replicate counts and seed construction.
 - Primary and secondary outcomes.
 
-== Additional results
+= Additional results
 
-- Full forecast-strategy tables.
-- Weight sensitivity.
-- Longer-horizon and initialization robustness.
-- Convergence diagnostics for iterated decision-aware prediction.
+- Full movement-schedule comparisons.
+- Reproduction and disease sensitivity.
+- Longer-horizon, landscape, and initialization robustness.
+- State-equivalence results for admissible execution orders.
 - Complete performance profiles.
 
-== Reproducibility
+= Reproducibility
 
 - Repository and archived release.
 - Julia, Rust, Typst, and package versions.
