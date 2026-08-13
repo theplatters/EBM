@@ -1,4 +1,4 @@
-#set document(title: "Rethinking ABM Architecture: Entity Component Systems and the Case for Parallel Agent Interactions")
+#set document(title: "Beyond the Agent Object: Entity Component Systems as an Architecture for Agent-Based Modeling")
 #set page(margin: (x: 2.5cm, y: 2.5cm))
 #set text(font: "New Computer Modern", size: 11pt)
 #set par(justify: true, leading: 0.65em)
@@ -6,7 +6,7 @@
 // --- Title ---
 #align(center)[
   #text(size: 16pt, weight: "bold")[
-    Rethinking ABM Architecture: Entity Component Systems \ and the Case for Parallel Agent Interactions
+    Beyond the Agent Object: Entity Component Systems \ as an Architecture for Agent-Based Modeling
   ]
 
   #v(0.8em)
@@ -21,7 +21,7 @@
 
   #v(0.4em)
 
-  #text(size: 10pt)[March 2026]
+  #text(size: 10pt)[August 2026]
 
   #v(1.2em)
 ]
@@ -29,13 +29,42 @@
 // --- Abstract ---
 #heading(level: 1, numbering: none)[Abstract]
 
-Agent-based modeling (ABM) has cemented itself as one of the core approaches in heterodox economics, capturing complex system dynamics through the interaction of individual agents governed by manageable rulesets. Its appeal lies in its ability to generate emergent macro-level phenomena from micro-level behavioral rules without requiring representative agents or equilibrium assumptions. However, despite its theoretical flexibility, most ABM frameworks rely on sequential agent updating, where one iterates through agents one at a time in a fixed or shuffled order. This introduces update-order artifacts: the sequence in which agents act can materially alter simulation outcomes, creating a methodological confound that is rarely acknowledged and even more rarely addressed. Beyond this epistemological concern, sequential processing imposes practical limits on computational scalability, constraining the size and complexity of the populations that can be feasibly modeled.
+Agent-based models are commonly implemented around agent objects that combine
+identity, state, and behavior. Although this organization mirrors the intuitive
+description of autonomous agents, it makes the complete agent representation
+the principal unit of model construction and can obscure the population-level
+processes through which agents interact. We examine Entity Component Systems
+(ECS) as an alternative architecture in which entities supply identity,
+components represent state and roles, and systems transform populations selected
+by component queries.
 
-We propose adopting Entity Component Systems (ECS) as an alternative architectural foundation for ABM. Originating in high-performance game development, ECS decouples agents (entities) from their properties (components) and behavioral rules (systems). This separation of concerns yields a data-oriented memory layout that enables efficient parallel processing of homogeneous operations across large agent populations. Where traditional object-oriented ABM frameworks bind data and behavior tightly within each agent, ECS organizes data by type rather than by owner, allowing a single system to operate on thousands or millions of components simultaneously.
+The comparison addresses three questions. First, how does ECS affect the
+representation and modification of overlapping and changing roles relative to
+an idiomatic agent-centered implementation of the same model? Second, how does
+system organization affect the locality, reuse, substitutability, and
+inspectability of population mechanisms? Third, how do dependencies and phase
+boundaries define information visibility and update timing, and under what
+conditions do alternative execution orders preserve outcomes?
 
-We explore the practical implications of this architectural choice through hands-on examples, revisiting and recreating the classical ABM presented by #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose"), which models generalized Darwinian selection processes in an economic context. We first replicate their original sequential model within an ECS framework, verifying behavioral equivalence, and then extend it by adapting the behavioral rules to a fully parallel approach in which all agents observe and act on the same world state simultaneously. This parallel formulation eliminates update-order dependence and offers a more faithful representation of environments where agents plausibly act concurrently rather than taking turns.
+The comparative case is the single-resource Sugarscape wealth-distribution
+model introduced by #cite(<epsteinGrowingArtificialSocieties1996>, form:
+"prose"). Heterogeneous citizens move and harvest on a regenerating landscape,
+metabolize sugar, accumulate wealth, age, and die. Optional reproduction and
+disease add overlapping and changing roles: sex is represented by exclusive
+tags, infection by a component added on transmission and removed on recovery,
+and fertility by predicates over age, wealth, sex, and neighborhood state.
+Movement is implemented under both shuffled-sequential and staged synchronous
+semantics, making the consequences of observation and commitment timing
+explicit.
 
-Comparing the sequential and parallel implementations, we examine how the choice of execution paradigm affects emergent dynamics, equilibrium selection, and the robustness of results. More broadly, we argue that programming paradigms and technical limitations are not neutral scaffolding, they quietly shape our core assumptions about what agents can perceive, when they can act, and how they interact. By making these architectural choices explicit, ECS offers heterodox economists not only a more scalable simulation tool but also a sharper lens through which to interrogate the hidden assumptions embedded in their models.
+The evaluation pairs the ECS model with a semantics-matched, idiomatic
+agent-centered reference and separates architecture treatments from schedule
+treatments. Storage layout, cache behavior, and multicore scaling are assessed
+as secondary engineering consequences rather than as a separate research
+question. The paper thereby treats ECS not as an automatic route to parallelism
+or superior performance, but as an architecture that can make state
+composition, population mechanisms, and schedule commitments explicit and
+testable.
 
 
 #bibliography("Econ.bib")
