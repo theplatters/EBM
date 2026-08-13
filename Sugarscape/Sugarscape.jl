@@ -23,19 +23,26 @@ export Age,
     ShuffledSequentialMovement,
     Sugar,
     SugarLandscape,
+    SugarscapeSnapshot,
+    SugarscapeVisualization,
     SynchronousMovement,
     Vision,
     canonical_landscape,
     citizen_snapshot,
     generate_plot_suite,
     gini_coefficient,
+    interactive_sugarscape,
     main,
+    play!,
     plot_model_diagnostics,
     plot_sugarscape,
     rebuild_occupancy!,
+    reset!,
     run_model,
     setup_world,
-    step!
+    step!,
+    stop!,
+    sugarscape_snapshot
 
 include("components/citizens.jl")
 
@@ -53,5 +60,9 @@ include("simulation/setup.jl")
 include("simulation/step.jl")
 include("analysis/runner.jl")
 include("analysis/plotting.jl")
+include("analysis/interactive.jl")
+
+include("agent_oriented/sequential.jl")
+include("agent_oriented/synchronous.jl")
 
 end # module Sugarscape

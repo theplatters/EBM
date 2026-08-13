@@ -866,3 +866,13 @@ end
 include(joinpath(@__DIR__, "..", "ElFasol", "test", "runtests.jl"))
 include(joinpath(@__DIR__, "..", "AssetMarket", "test", "runtests.jl"))
 include(joinpath(@__DIR__, "..", "Sugarscape", "test", "runtests.jl"))
+include(
+    joinpath(
+        @__DIR__,
+        "..",
+        "Sugarscape",
+        "agent_oriented",
+        "test",
+        "runtests.jl",
+    ),
+)

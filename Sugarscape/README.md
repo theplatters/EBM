@@ -24,6 +24,7 @@ core/             model parameters, landscape, occupancy, RNG, clock, and logger
 systems/          growback, movement, disease, lifecycle, and reproduction
 simulation/       world setup and ordered period schedule
 analysis/         snapshots, inequality diagnostics, runner, and plots
+agent_oriented/   outcome-equivalent sequential and synchronous Agents.jl models
 test/runtests.jl  landscape, movement, lifecycle, disease, reproduction, and plot tests
 ```
 
@@ -49,6 +50,25 @@ world = EBM.Sugarscape.run_model(
     EBM.Sugarscape.ModelArgs(seed = 2026, params = params, steps = 250),
 )
 ```
+
+The semantics-matched Agents.jl implementations use the same `ModelParams` and
+`ModelArgs`:
+
+```julia
+sequential = EBM.Sugarscape.AgentSequential.run_model(args)
+synchronous = EBM.Sugarscape.AgentSynchronous.run_model(
+    EBM.Sugarscape.ModelArgs(
+        seed = 2026,
+        params = EBM.Sugarscape.ModelParams(
+            movement_mode = EBM.Sugarscape.SynchronousMovement,
+        ),
+        steps = 250,
+    ),
+)
+```
+
+See [`agent_oriented/COMPARISON.md`](agent_oriented/COMPARISON.md) for measured
+performance, source-line counts, architecture trade-offs, and reproduction commands.
 
 When several citizens propose the same initially empty cell, one is selected using the
 simulation RNG and the others remain at their original positions. Synchronous movement
@@ -123,6 +143,29 @@ result.paths
 This writes a final landscape/wealth visualization and a diagnostic figure containing
 wealth, inequality, resource stocks, movement, conflicts, births, infections, and deaths. Run
 `julia --project=. Sugarscape/generate_plots.jl` to generate both figures.
+
+For a live view in Pluto, Jupyter, or another browser-backed Julia display, activate
+WGLMakie and create an interactive dashboard:
+
+```julia
+using EBM
+using WGLMakie
+
+WGLMakie.activate!()
+visualization = EBM.Sugarscape.interactive_sugarscape(
+    EBM.Sugarscape.ModelArgs(seed = 2026, steps = 250),
+)
+visualization.figure
+```
+
+The dashboard has reset, single-step, run/pause, and playback-speed controls. It updates
+the resource landscape, citizen positions and wealth, infection markers, inequality
+history, the current age–wealth distribution, and event counts. `ModelArgs.steps` is the
+playback horizon. A dashboard can also be driven from Julia with
+`EBM.Sugarscape.step!(visualization, 10)`, played with
+`EBM.Sugarscape.play!(visualization)`, reset with
+`EBM.Sugarscape.reset!(visualization)`, and stopped with
+`EBM.Sugarscape.stop!(visualization)`.
 
 ## Testing
 

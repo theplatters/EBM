@@ -305,3 +305,38 @@ end
         ),
     )
 end
+
+@testset "Sugarscape interactive visualization" begin
+    params = SugarModel.ModelParams(width = 8, height = 8, population = 20)
+    args = SugarModel.ModelArgs(seed = 41, params = params, steps = 4)
+    visualization = SugarModel.interactive_sugarscape(args; framerate = 10)
+
+    @test visualization.figure isa SugarModel.Figure
+    @test visualization.state[].step == 0
+    @test visualization.state[].population == params.population
+
+    SugarModel.step!(visualization, 2)
+    first_signature = sugarscape_signature(visualization.world)
+    @test visualization.state[].step == 2
+    @test visualization.state[].history_steps == [1, 2]
+    @test !visualization.running[]
+
+    SugarModel.reset!(visualization)
+    SugarModel.step!(visualization, 2)
+    @test sugarscape_signature(visualization.world) == first_signature
+
+    SugarModel.step!(visualization, 10)
+    @test visualization.state[].step == args.steps
+    @test_throws ArgumentError SugarModel.step!(visualization, -1)
+
+    SugarModel.reset!(visualization)
+    SugarModel.play!(visualization)
+    wait(visualization.task)
+    @test visualization.state[].step == args.steps
+    @test !visualization.running[]
+
+    @test_throws ArgumentError SugarModel.interactive_sugarscape(
+        SugarModel.ModelArgs(params = params, steps = 0),
+    )
+    SugarModel.stop!(visualization)
+end
