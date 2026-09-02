@@ -123,13 +123,7 @@ Parametric, type-based, and compositional heterogeneity are distinct but not
 mutually exclusive dimensions along which agents may differ. A model may
 combine any or all of them. Let $cal(W)$ be the set of admissible complete
 world states. For $W in cal(W)$, let $I(W)$ be the finite, nonempty set of
-agents present in that state and let $N(W)=abs(I(W))$. This formulation permits
-entry, exit, and replacement; neither population size nor agent identifiers
-need remain fixed. It also avoids assigning a clock before the model's
-transition and scheduling semantics have been specified. Sugarscape provides
-the running example: citizens carry heterogeneous vision and metabolism,
-occupy sex and infection roles, and enter or leave the population through
-replacement, reproduction, and death.
+agents present in that state and let $N(W)=abs(I(W))$.
 
 A complete $W$ contains the agent descriptors defined below together with the
 environment and all remaining model state. Where a scheduled transition uses
@@ -428,7 +422,7 @@ become visible; they do not by themselves prescribe a software architecture.
 
   Mesa follows Python's class-based idiom: modelers typically subclass `Agent`,
   store state in instance attributes, and define behavior as agent methods
-  @terHoevenMesa3AgentBased2025. A model-level step selects an `AgentSet` and
+  (terHoevenMesa3AgentBased2025). A model-level step selects an `AgentSet` and
   invokes those methods with operations such as `do` or `shuffle_do`, so the
   population traversal can be filtered, grouped, fixed, or randomized while
   each invocation still enters through an agent object. Classes and expected
@@ -440,7 +434,7 @@ become visible; they do not by themselves prescribe a software architecture.
   MASON makes the nominal route more explicit through Java classes and
   interfaces. A model commonly defines several agent classes implementing
   `Steppable`; class fields determine the usual state schema and the scheduler
-  invokes each object's `step(SimState)` method @lukeMASONMultiagentSimulation2005.
+  invokes each object's `step(SimState)` method (lukeMASONMultiagentSimulation2005).
   Helpers, environmental processes, and model-level coordinators may implement
   the same interface, and its priority queue supports asynchronous events,
   ordered phases, and fixed or randomized collections. Java interfaces,
@@ -455,7 +449,7 @@ become visible; they do not by themselves prescribe a software architecture.
   partition turtles or links into named agentsets, and breed-specific `-own`
   declarations together with
   the common `turtles-own`, `patches-own`, and `links-own` declarations specify
-  available variables @wilenskyNetLogo1999. A breed is thus a natural $tau$,
+  available variables (wilenskyNetLogo1999). A breed is thus a natural $tau$,
   the variables available to it define $X$, and their values form $x$.
   Procedures are not methods owned by a class, but `ask` executes them in each
   selected agent's context and ordinarily applies changes in randomized serial
@@ -470,7 +464,7 @@ become visible; they do not by themselves prescribe a software architecture.
   Agents.jl uses Julia's concrete data types rather than a conventional class
   hierarchy. A homogeneous model may define one agent struct; heterogeneous
   models may admit a `Union` of agent types or use `@multiagent` to wrap a closed
-  set of variants @datserisAgentsjlPerformant2024. Concrete type or enclosed
+  set of variants (datserisAgentsjlPerformant2024). Concrete type or enclosed
   variant supplies $tau$, fields determine $X$, and multiple dispatch can
   specialize behavior by that kind. Behavior is defined externally through
   `agent_step!` and `model_step!`; a scheduler selects the agents and order
@@ -485,7 +479,7 @@ become visible; they do not by themselves prescribe a software architecture.
   FLAME GPU sharpens the distinction because execution efficiency is central to
   its design. Agent types declare fixed variable schemas, while agent functions
   are associated with agent states and execution layers and operate over GPU
-  populations @richmondFLAMEGPU2Framework2023. The declared agent type again
+  populations (richmondFLAMEGPU2Framework2023). The declared agent type again
   provides a natural $tau$ and $X$, but behavior is launched population-wide as
   GPU kernels rather than invoked serially as object methods. Messages separate
   communication phases, and ordered layers or a dependency graph determine when
@@ -578,7 +572,7 @@ In this paper, *agent-centered* names the conjunction of two default commitments
 
 #agent_centered_assessment
 
-= Entity Component Systems as a Modeling Architecture
+= Entity Component Systems as a Modeling Architecture <sec:ecs-chapter>
 
 Building on the engine and multi-agent work reviewed in @sec:literature, this
 chapter turns from ECS feasibility to its consequences for scientific model
@@ -1072,6 +1066,140 @@ constraint prevents the current ECS implementation from being compared with an
 agent-centered model that implements different movement, disease, or
 reproduction semantics.
 
+== Where the agent step cannot carry the model <sec:breakdown>
+
+The preceding chapters leave the agent-centered position in its strongest form.
+Staged, population-level mechanisms are available as idiom in every major
+framework: `AgentSet` operations in Mesa, population passes in Agents.jl,
+repeated `ask` phases in NetLogo, and model-level coordinators in MASON all
+express the growback–movement–lifecycle sequence as ordinary functions called
+in a fixed order. If convention suffices everywhere, the difference between
+the architectures is enforcement rather than expressiveness, and the
+comparative study degenerates into a comparison of house styles. The case
+study must therefore exhibit one of two things: a scientific constraint the
+idiom cannot express, or an error class the idiom cannot detect by its own
+machinery. The Sugarscape extension contains both.
+
+=== A rule the step function cannot honor
+
+In the agent-centered idiom, everything a citizen does in a period is bundled
+into one step function: observe, move, harvest sugar, pay metabolism, grow
+older, die if ruined, possibly reproduce. The scheduler simply invokes this
+function for each citizen in turn, and for the shuffled-sequential treatment
+the bundle is faithful to the specification. The extension, however, contains
+one rule that the bundle cannot honor.
+
+Disease transmission runs after movement: a citizen standing next to an
+infected neighbor this period may catch the infection, and catching it costs
+sugar. That cost can push a citizen's wealth to zero, and the specification
+says such a citizen starves *in the same period*. This is why the schedule
+declares that disease processing precedes the lifecycle check.
+
+Now observe what this rule does to the idiom. The lifecycle check lives inside
+each citizen's step function, so citizens activated early in the period have
+already performed their metabolism, aging, and death check before the disease
+process runs. When transmission later drains the sugar of such a citizen, the
+harm arrives too late: its step function ran before the infection existed, and
+it never got the chance to starve. A citizen the specification says should die
+this period survives, silently, and survival depends on nothing but position
+in the activation queue.
+
+The failure is not a missing flag or an unhandled case. The specification
+states an ordering constraint between two *processes* — infection must resolve
+before any citizen's survival is evaluated — but in the idiom those processes
+do not exist as separate, orderable units. They are fragments welded inside the
+step function and interleaved across the population by the scheduler's
+traversal, and no step function can know whether the disease process has
+completed for this period. The idiomatic repair is to pull metabolism and death
+out of the citizen and run them once, after transmission, over the whole
+population. That repair is correct, and it is also a surrender: behavior has
+been decomposed by process rather than by agent, which is the organization this
+paper attributes to ECS. One of the model's own rules cannot be expressed while
+the citizen's step remains the unit of execution.
+
+=== The synchronous reference must reinvent the machinery
+
+The second breakdown appears in the semantics-matched reference itself. Write
+the synchronous movement treatment as a competent framework user naturally
+would. The in-place variant — mark departures and arrivals while iterating,
+resolve contention as it arises — decides contested cells by iteration order.
+Under the equivalence conditions of @sec:time, that is not an
+implementation of the synchronous model but of a different one: the winner of
+a contested cell is determined by the traversal rather than by the declared
+arbitration rule.
+
+The correct idiomatic implementation must therefore contain a frozen occupancy
+snapshot, a proposal buffer, a joint resolution pass, and a deferred commit of
+positions, wealth, and landscape state. Each of these is an ad hoc
+reconstruction of machinery the ECS implementation names explicitly: the
+snapshot corresponds to a query over a phase-entry state, the buffer to
+proposal components, the two passes to phases, and the deferred commit to
+staged structural change. The reinvention is the point. The comparison is no
+longer architecture against idiom; it is named, declared structure against the
+same structure rebuilt without its declarations.
+
+What the reinvention lacks is precisely the declared read and write sets of
+@sec:ecs-chapter. Nothing in the idiomatic implementation records which
+population mechanisms read the frozen occupancy, which write positions, or
+that the shared RNG is a contended resource. Consequently no equivalence
+check, reordering analysis, or boundary test can be derived from the code's
+own structure; every such guarantee must be re-derived and re-tested by hand
+whenever a mechanism changes. The gain claimed for ECS is not that the
+machinery is new — the correct implementation proves it is not — but that the
+machinery carries its own dependency account with it.
+
+=== Error classes as the measurable claim
+
+These two breakdowns convert part of the comparison from an assessment of
+readability into a countable claim. After both correct implementations exist,
+apply a mutation battery that perturbs each in the direction the idiom's
+defaults pull:
+
++ commit death, replacement, or harvest during traversal instead of at the
+  phase boundary;
++ swap the disease and lifecycle processes;
++ resolve contested cells in iteration order instead of seeded arbitration;
++ let reordered systems draw from the shared RNG in execution order;
++ write landscape sugar during the proposal phase.
+
+For each mutation, record whether the implementation's own machinery flags it
+and whether the complete trajectory diverges silently from the unmutated run.
+The prediction is asymmetric: the declared read and write sets mechanically
+detect a specific subset — the overlapping-write and random-number conflicts
+identified in @sec:ecs-chapter — while the idiomatic implementation detects
+none by machinery, because it has no declarations to check. Silent divergence
+is the damage metric; mechanical detection is the capability metric.
+
+One qualification must travel with this argument. The disease-to-starvation
+demonstration is a schedule-semantics constraint (RQ3) that manifests as a
+behavior-organization outcome (RQ2). That leakage is not a defect: it is the
+one-vocabulary thesis of the introduction made concrete, since the same
+component and dependency information determines both where behavior lives and
+when its effects are visible. The experiments should report it as such rather
+than counting it twice.
+
+The argument also has honest bounds. It does not prove that agent objects
+cannot express the model: the correct reference will express it, at the price
+of reinventing the systems organization. What it shows is narrower and
+sharper. Sustaining the specification's ordering while keeping the agent step
+as the unit of execution is impossible; the available repair reconstructs
+systems without their declarations; and a class of errors that the
+declarations detect mechanically is left to convention everywhere else.
+Sugarscape, a small model with light individual cognition, cannot refute the
+inspection and individualized-behavior advantages recorded in
+@sec:agent-centered, and those costs remain live in the discussion.
+
+#scaffold-note([Required implementation artifacts], [
+  This section makes claims that require four artifacts: a bundled-step
+  agent-centered variant with intact citizen steps; a demonstration that its
+  trajectory diverges from the specification through same-period
+  infection-driven starvation; flag-based and staged variants of the
+  synchronous reference showing the reinvention; and the mutation battery with
+  a detection and divergence table that classifies each mutation by research
+  question. Do not retain this section in the final manuscript unless all
+  four artifacts exist.
+])
+
 == From agent records to ECS
 
 === State composition
@@ -1330,6 +1458,11 @@ The conclusion should concern locality and composability, not the impossibility 
   separately report the ease of reconstructing one agent's complete behavior.
 - Use movement-mode, reproduction, and disease treatments to illustrate
   scientific experiments enabled by mechanism separation.
+
+The mutation battery of @sec:breakdown supplies the detection half of this
+comparison: the locality and substitutability evidence above concerns what
+each architecture makes easy, whereas the battery concerns which errors each
+architecture makes detectable.
 
 == Experiment C: Schedule semantics
 
