@@ -42,13 +42,33 @@ end
 struct Female end
 struct Male end
 
-struct ImmuneProfile
+struct Disease
     bits::UInt64
+    length::Int64
+
+    function Disease(bits::Integer, length::Integer)
+        1 <= length <= 64 || throw(ArgumentError("disease length must be between 1 and 64"))
+        mask = length == 64 ? typemax(UInt64) : (UInt64(1) << length) - UInt64(1)
+        return new(UInt64(bits) & mask, Int64(length))
+    end
 end
 
+"""Inherited immune template and the phenotype trained during the citizen's life."""
+struct ImmuneProfile
+    genotype::UInt64
+    phenotype::UInt64
+end
+
+ImmuneProfile(bits::Integer) = ImmuneProfile(UInt64(bits), UInt64(bits))
+
+"""Bit mask of diseases carried from the model's shared disease catalogue."""
 struct Infection
-    strain::UInt64
-    age::Int64
+    diseases::UInt64
+
+    function Infection(diseases::Integer)
+        diseases >= 0 || throw(ArgumentError("infection mask cannot be negative"))
+        return new(UInt64(diseases))
+    end
 end
 
 struct CitizenState

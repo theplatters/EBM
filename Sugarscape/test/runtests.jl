@@ -1,5 +1,6 @@
 using Ark
 using EBM
+using Random
 using Test
 
 const SugarModel = EBM.Sugarscape
@@ -75,40 +76,8 @@ end
         reproduction_probability = 1.0,
     )
     world = SugarModel.setup_world(SugarModel.ModelArgs(seed = 14, params = params, steps = 0))
-    for (entities, ids, positions, proposals) in Ark.Query(
-        world,
-        (SugarModel.CitizenId, SugarModel.Position, SugarModel.ProposedPosition),
-    )
-        @inbounds for i in eachindex(entities)
-            position = ids[i].val == 1 ? SugarModel.Position(2, 2) : SugarModel.Position(3, 2)
-            positions[i] = position
-            proposals[i] = SugarModel.ProposedPosition(position)
-        end
-    end
-    SugarModel.rebuild_occupancy!(world)
-    SugarModel.reproduce!(world)
-    citizens = SugarModel.citizen_snapshot(world)
-    events = Ark.get_resource(world, SugarModel.StepEvents)
-
-    @test length(citizens) == 3
-    @test sum(citizen.sugar for citizen in citizens) == 40
-    @test length(unique(citizen.position for citizen in citizens)) == 3
-    @test events.births == 1
-    @test count(citizen -> citizen.sex == :female, citizens) in (1, 2)
-end
-
-@testset "Sugarscape structural infection lifecycle" begin
-    params = SugarModel.ModelParams(
-        width = 4,
-        height = 4,
-        population = 2,
-        disease_transmission_probability = 1.0,
-        disease_duration = 2,
-        disease_sugar_cost = 0,
-    )
-    world = SugarModel.setup_world(SugarModel.ModelArgs(seed = 19, params = params, steps = 0))
-    infected_entity = nothing
-    for (entities, ids, positions, proposals, immunity) in Ark.Query(
+    parent_genotypes = Dict(1 => UInt64(0b10101), 2 => UInt64(0b10011))
+    for (entities, ids, positions, proposals, immunities) in Ark.Query(
         world,
         (
             SugarModel.CitizenId,
@@ -121,21 +90,114 @@ end
             position = ids[i].val == 1 ? SugarModel.Position(2, 2) : SugarModel.Position(3, 2)
             positions[i] = position
             proposals[i] = SugarModel.ProposedPosition(position)
-            immunity[i] = SugarModel.ImmuneProfile(UInt64(ids[i].val))
-            ids[i].val == 1 && (infected_entity = entities[i])
+            immunities[i] = SugarModel.ImmuneProfile(parent_genotypes[ids[i].val])
         end
     end
-    Ark.add_components!(world, infected_entity, (SugarModel.Infection(0x00000000000000ff, 0),))
+    SugarModel.rebuild_occupancy!(world)
+    SugarModel.reproduce!(world)
+    citizens = SugarModel.citizen_snapshot(world)
+    events = Ark.get_resource(world, SugarModel.StepEvents)
+
+    @test length(citizens) == 3
+    @test sum(citizen.sugar for citizen in citizens) == 40
+    @test length(unique(citizen.position for citizen in citizens)) == 3
+    @test events.births == 1
+    @test count(citizen -> citizen.sex == :female, citizens) in (1, 2)
+    child_immunity = nothing
+    for (entities, ids, immunities) in
+        Ark.Query(world, (SugarModel.CitizenId, SugarModel.ImmuneProfile))
+        @inbounds for i in eachindex(entities)
+            ids[i].val == 3 && (child_immunity = immunities[i])
+        end
+    end
+    differing = xor(parent_genotypes[1], parent_genotypes[2])
+    @test child_immunity.phenotype == child_immunity.genotype
+    @test child_immunity.genotype & ~differing == parent_genotypes[1] & ~differing
+end
+
+@testset "Sugarscape adaptive immune response" begin
+    disease = SugarModel.Disease(0b111, 3)
+    @test SugarModel.immune_to(0b00111, disease, 5)
+    @test SugarModel.immune_to(0b11100, disease, 5)
+    @test !SugarModel.immune_to(0b00000, disease, 5)
+    trained = UInt64(0)
+    trained = SugarModel.train_immunity(trained, disease, 5)
+    @test trained == 0b00001
+    trained = SugarModel.train_immunity(trained, disease, 5)
+    @test trained == 0b00011
+    trained = SugarModel.train_immunity(trained, disease, 5)
+    @test trained == 0b00111
+
+    rng = Random.Xoshiro(41)
+    mother = UInt64(0b10101)
+    father = UInt64(0b10011)
+    child = SugarModel.inherit_immune_genotype(rng, mother, father, 5)
+    differing = xor(mother, father)
+    @test child & ~differing == mother & ~differing
+    @test iszero(child & ~SugarModel.bit_mask(5))
+end
+
+@testset "Sugarscape multi-disease transmission and recovery" begin
+    params = SugarModel.ModelParams(
+        width = 5,
+        height = 5,
+        population = 3,
+        disease_catalog_size = 2,
+        initial_diseases_per_citizen = 0,
+        minimum_disease_length = 3,
+        maximum_disease_length = 3,
+        immune_system_length = 5,
+        disease_sugar_cost = 1,
+    )
+    world = SugarModel.setup_world(SugarModel.ModelArgs(seed = 19, params = params, steps = 0))
+    catalog = Ark.get_resource(world, SugarModel.DiseaseCatalog)
+    empty!(catalog.diseases)
+    append!(catalog.diseases, (SugarModel.Disease(0b111, 3), SugarModel.Disease(0b101, 3)))
+    infected = Pair{Ark.Entity, SugarModel.Infection}[]
+    recipient = nothing
+    initial_sugar = Dict{Int64, Int64}()
+    for (entities, ids, positions, proposals, immunity, sugars) in Ark.Query(
+        world,
+        (
+            SugarModel.CitizenId,
+            SugarModel.Position,
+            SugarModel.ProposedPosition,
+            SugarModel.ImmuneProfile,
+            SugarModel.Sugar,
+        ),
+    )
+        @inbounds for i in eachindex(entities)
+            position = SugarModel.Position(ids[i].val, 3)
+            positions[i] = position
+            proposals[i] = SugarModel.ProposedPosition(position)
+            immunity[i] = SugarModel.ImmuneProfile(0)
+            initial_sugar[ids[i].val] = sugars[i].val
+            ids[i].val == 1 && push!(infected, entities[i] => SugarModel.Infection(0b01))
+            ids[i].val == 2 && (recipient = entities[i])
+            ids[i].val == 3 && push!(infected, entities[i] => SugarModel.Infection(0b10))
+        end
+    end
+    for (entity, infection) in infected
+        Ark.add_components!(world, entity, (infection,))
+    end
     SugarModel.rebuild_occupancy!(world)
     SugarModel.transmit_disease!(world)
-    @test count_sugar_components(world, (SugarModel.Infection,)) == 2
-    @test Ark.get_resource(world, SugarModel.StepEvents).infections == 1
+    @test count_sugar_components(world, (SugarModel.Infection,)) == 3
+    @test Ark.get_components(world, recipient, (SugarModel.Infection,))[1].diseases == 0b11
+    @test Ark.get_resource(world, SugarModel.StepEvents).infections == 2
 
-    SugarModel.progress_infections!(world)
-    @test count_sugar_components(world, (SugarModel.Infection,)) == 2
-    SugarModel.progress_infections!(world)
+    for _ in 1:3
+        SugarModel.progress_infections!(world)
+    end
     @test count_sugar_components(world, (SugarModel.Infection,)) == 0
-    @test Ark.get_resource(world, SugarModel.StepEvents).recoveries == 2
+    @test Ark.get_resource(world, SugarModel.StepEvents).recoveries == 4
+    final_sugar = Dict{Int64, Int64}()
+    for (entities, ids, sugars) in Ark.Query(world, (SugarModel.CitizenId, SugarModel.Sugar))
+        @inbounds for i in eachindex(entities)
+            final_sugar[ids[i].val] = sugars[i].val
+        end
+    end
+    @test sum(values(initial_sugar)) - sum(values(final_sugar)) == 8
 end
 
 @testset "Sugarscape seeded movement modes" begin
@@ -216,6 +278,44 @@ end
     @test events.moved == 1
 end
 
+@testset "Buffered destination selection matches reference semantics" begin
+    for width in 1:4, height in 1:4
+        params = SugarModel.ModelParams(width = width, height = height, population = 0)
+        capacity = [Int64(mod(3x + 5y, 4)) for x in 1:width, y in 1:height]
+        landscape = SugarModel.SugarLandscape(copy(capacity), capacity)
+        occupancy = SugarModel.OccupancyGrid(zeros(Int64, width, height))
+        buffers = SugarModel.SimulationBuffers(params)
+
+        for x in 1:width, y in 1:height, vision in 0:10, seed in 1:5
+            position = SugarModel.Position(x, y)
+            reference_rng = Random.Xoshiro(seed)
+            buffered_rng = Random.Xoshiro(seed)
+            reference = SugarModel.select_destination(
+                position,
+                vision,
+                1,
+                landscape,
+                occupancy,
+                params,
+                reference_rng,
+            )
+            buffered = SugarModel.select_destination(
+                position,
+                vision,
+                1,
+                landscape,
+                occupancy,
+                params,
+                buffered_rng,
+                buffers,
+            )
+
+            @test buffered == reference
+            @test rand(buffered_rng, UInt64) == rand(reference_rng, UInt64)
+        end
+    end
+end
+
 @testset "Sugarscape lifecycle and replacement" begin
     starvation_params = SugarModel.ModelParams(
         width = 2,
@@ -274,13 +374,44 @@ end
     @test SugarModel.gini_coefficient([0, 0, 0]) == 0.0
     @test SugarModel.gini_coefficient([0, 1]) == 0.5
     @test isnan(SugarModel.gini_coefficient(Int[]))
+    distribution = SugarModel.wealth_statistics([0, 10, 20, 30])
+    @test distribution.mean_wealth == 15.0
+    @test distribution.median_wealth == 15.0
+    @test distribution.wealth_p25 == 7.5
+    @test distribution.wealth_p75 == 22.5
+    @test distribution.bottom_50_share ≈ 1 / 6
+    @test distribution.top_10_share == 0.5
+    @test distribution.gini ≈ 5 / 12
+    lorenz = SugarModel.lorenz_curve([0, 10, 20, 30])
+    @test lorenz.population_share == [0.0, 0.25, 0.5, 0.75, 1.0]
+    @test lorenz.wealth_share == [0.0, 0.0, 1 / 6, 0.5, 1.0]
+    @test_throws ArgumentError SugarModel.lorenz_curve([-1, 1])
 
     params = SugarModel.ModelParams(width = 8, height = 8, population = 20)
     world = SugarModel.run_model(SugarModel.ModelArgs(seed = 31, params = params, steps = 5))
     logger = Ark.get_resource(world, SugarModel.Logger)
+    statistics = SugarModel.summary_statistics(world; burn_in = 1)
+    @test statistics.period == 5
+    @test statistics.population == params.population
+    @test statistics.females + statistics.males == statistics.population
+    @test statistics.total_agent_sugar == logger.total_agent_sugar[end]
+    @test statistics.gini ≈ logger.gini[end]
+    @test statistics.cumulative_deaths == sum(logger.deaths)
+    @test_throws ArgumentError SugarModel.summary_statistics(world; burn_in = -1)
     @test !isnothing(SugarModel.plot_model_diagnostics(logger))
+    @test !isnothing(SugarModel.plot_population_dynamics(logger))
     @test !isnothing(SugarModel.plot_sugarscape(world))
+    @test !isnothing(SugarModel.plot_wealth_distribution(world))
     @test_throws ArgumentError SugarModel.plot_model_diagnostics(SugarModel.Logger())
+    @test_throws ArgumentError SugarModel.plot_population_dynamics(SugarModel.Logger())
+
+    mktempdir() do directory
+        path = joinpath(directory, "statistics.tsv")
+        @test SugarModel.write_summary_statistics(path, statistics) == path
+        contents = read(path, String)
+        @test startswith(contents, "metric\tvalue\n")
+        @test occursin("gini\t", contents)
+    end
 
     @test_throws ArgumentError SugarModel.setup_world(
         SugarModel.ModelArgs(

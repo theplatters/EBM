@@ -7,6 +7,7 @@ function spawn_citizen!(
     maximum_age = nothing,
     initial_endowment = nothing,
     sex = nothing,
+    immune_genotype = nothing,
     immune_bits = nothing,
 )
     params = Ark.get_resource(world, ModelParams)
@@ -18,23 +19,32 @@ function spawn_citizen!(
                     rand(rng, params.minimum_initial_sugar:params.maximum_initial_sugar) : sugar
     endowment = isnothing(initial_endowment) ? citizen_sugar : initial_endowment
     sex_component = isnothing(sex) ? (rand(rng, Bool) ? Female() : Male()) : sex
+    citizen_vision =
+        isnothing(vision) ? rand(rng, params.minimum_vision:params.maximum_vision) : vision
+    citizen_metabolism = isnothing(metabolism) ?
+                         rand(rng, params.minimum_metabolism:params.maximum_metabolism) :
+                         metabolism
+    citizen_maximum_age = isnothing(maximum_age) ?
+                          rand(rng, params.minimum_lifespan:params.maximum_lifespan) :
+                          maximum_age
+    genotype = if isnothing(immune_genotype)
+        rand(rng, UInt64) & bit_mask(params.immune_system_length)
+    else
+        UInt64(immune_genotype) & bit_mask(params.immune_system_length)
+    end
+    phenotype = isnothing(immune_bits) ? genotype :
+                UInt64(immune_bits) & bit_mask(params.immune_system_length)
     bundle = (
         CitizenId(citizen_id),
         position,
         ProposedPosition(position),
-        Vision(isnothing(vision) ? rand(rng, params.minimum_vision:params.maximum_vision) : vision),
-        Metabolism(
-            isnothing(metabolism) ?
-            rand(rng, params.minimum_metabolism:params.maximum_metabolism) : metabolism,
-        ),
+        Vision(citizen_vision),
+        Metabolism(citizen_metabolism),
         Sugar(citizen_sugar),
         Age(0),
-        MaximumAge(
-            isnothing(maximum_age) ?
-            rand(rng, params.minimum_lifespan:params.maximum_lifespan) : maximum_age,
-        ),
+        MaximumAge(citizen_maximum_age),
         InitialEndowment(endowment),
-        ImmuneProfile(isnothing(immune_bits) ? rand(rng, UInt64) : immune_bits),
+        ImmuneProfile(genotype, phenotype),
         sex_component,
     )
     Ark.new_entity!(world, bundle)
@@ -60,21 +70,27 @@ function spawn_initial_population!(world)
 end
 
 function seed_initial_infections!(world)
-    probability = Ark.get_resource(world, ModelParams).initial_infection_probability
-    probability == 0.0 && return nothing
+    params = Ark.get_resource(world, ModelParams)
+    count = params.initial_diseases_per_citizen
+    iszero(count) && return nothing
+    catalog = Ark.get_resource(world, DiseaseCatalog)
     rng = simulation_rng(world)
     candidates = Tuple{Int64, Ark.Entity, UInt64}[]
     for (entities, ids, immunity) in Query(world, (CitizenId, ImmuneProfile))
         @inbounds for i in eachindex(entities)
-            push!(candidates, (ids[i].val, entities[i], immunity[i].bits))
+            push!(candidates, (ids[i].val, entities[i], immunity[i].phenotype))
         end
     end
     sort!(candidates; by = first)
     for (_, entity, immune_bits) in candidates
-        rand(rng) < probability || continue
-        strain = rand(rng, UInt64)
-        strain == immune_bits && (strain = ~strain)
-        Ark.add_components!(world, entity, (Infection(strain, 0),))
+        diseases = initial_disease_mask(
+            rng,
+            catalog,
+            count,
+            immune_bits,
+            params.immune_system_length,
+        )
+        iszero(diseases) || Ark.add_components!(world, entity, (Infection(diseases),))
     end
     return nothing
 end

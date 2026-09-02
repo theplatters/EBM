@@ -1,5 +1,6 @@
 using Ark
 using EBM
+using Random
 using Test
 
 const SugarECS = EBM.Sugarscape
@@ -63,12 +64,74 @@ function logger_signature(value)
     return Tuple(copy(getproperty(value, field)) for field in LOGGER_FIELDS)
 end
 
+function ecs_disease_signature(world)
+    states = Tuple{Int64, UInt64, UInt64, UInt64}[]
+    for (entities, ids, immunity) in
+        Ark.Query(world, (SugarECS.CitizenId, SugarECS.ImmuneProfile))
+        @inbounds for i in eachindex(entities)
+            diseases = if Ark.has_components(world, entities[i], (SugarECS.Infection,))
+                Ark.get_components(world, entities[i], (SugarECS.Infection,))[1].diseases
+            else
+                UInt64(0)
+            end
+            push!(
+                states,
+                (ids[i].val, immunity[i].genotype, immunity[i].phenotype, diseases),
+            )
+        end
+    end
+    sort!(states; by = first)
+    return states
+end
+
+function agent_disease_signature(agent_module, model)
+    states = [
+        (
+            id,
+            model[id].immune_genotype,
+            model[id].immune_bits,
+            isnothing(model[id].infection) ? UInt64(0) : model[id].infection.diseases,
+        ) for id in sort!(collect(agent_module.allids(model)))
+    ]
+    return states
+end
+
 function assert_same_state(agent_module, world, model)
     @test citizen_signature(SugarECS.citizen_snapshot(world)) ==
           citizen_signature(agent_module.citizen_snapshot(model))
     @test landscape_signature(ecs_landscape(world)) ==
           landscape_signature(agent_module.landscape(model))
+    @test ecs_disease_signature(world) == agent_disease_signature(agent_module, model)
+    @test Ark.get_resource(world, SugarECS.DiseaseCatalog).diseases ==
+          model.disease_catalog.diseases
     @test isequal(logger_signature(ecs_logger(world)), logger_signature(agent_module.logger(model)))
+    return nothing
+end
+
+function assert_same_ecs_state(left, right)
+    @test citizen_signature(SugarECS.citizen_snapshot(left)) ==
+          citizen_signature(SugarECS.citizen_snapshot(right))
+    @test landscape_signature(ecs_landscape(left)) ==
+          landscape_signature(ecs_landscape(right))
+    @test ecs_disease_signature(left) == ecs_disease_signature(right)
+    @test isequal(
+        logger_signature(ecs_logger(left)),
+        logger_signature(ecs_logger(right)),
+    )
+    return nothing
+end
+
+function assert_same_agent_state(agent_module, left, right)
+    @test citizen_signature(agent_module.citizen_snapshot(left)) ==
+          citizen_signature(agent_module.citizen_snapshot(right))
+    @test landscape_signature(agent_module.landscape(left)) ==
+          landscape_signature(agent_module.landscape(right))
+    @test agent_disease_signature(agent_module, left) ==
+          agent_disease_signature(agent_module, right)
+    @test isequal(
+        logger_signature(agent_module.logger(left)),
+        logger_signature(agent_module.logger(right)),
+    )
     return nothing
 end
 
@@ -198,6 +261,20 @@ end
     ) == 1
 end
 
+@testset "Agents.jl synchronous periodic visibility alias equivalence" begin
+    params = SugarECS.ModelParams(
+        width = 2,
+        height = 3,
+        population = 3,
+        maximum_patch_sugar = 6,
+        minimum_vision = 8,
+        maximum_vision = 8,
+        movement_mode = SugarECS.SynchronousMovement,
+    )
+    args = SugarECS.ModelArgs(seed = 319, params = params, steps = 4)
+    assert_stepwise_equivalence(SugarECS.AgentSynchronous, args)
+end
+
 @testset "Agents.jl death and replacement equivalence" begin
     for (agent_module, movement_mode) in (
         (SugarECS.AgentSequential, SugarECS.ShuffledSequentialMovement),
@@ -281,18 +358,17 @@ end
             maximum_vision = 0,
             minimum_metabolism = 0,
             maximum_metabolism = 0,
-            minimum_initial_sugar = 20,
-            maximum_initial_sugar = 20,
+            minimum_initial_sugar = 50,
+            maximum_initial_sugar = 50,
             minimum_lifespan = 100,
             maximum_lifespan = 100,
             replace_dead = false,
             movement_mode = movement_mode,
-            initial_infection_probability = 0.5,
-            disease_transmission_probability = 1.0,
-            disease_duration = 2,
+            disease_catalog_size = 5,
+            initial_diseases_per_citizen = 2,
             disease_sugar_cost = 1,
         )
-        args = SugarECS.ModelArgs(seed = 1, params = params, steps = 2)
+        args = SugarECS.ModelArgs(seed = 1, params = params, steps = 5)
         world, model = assert_stepwise_equivalence(agent_module, args)
         log = agent_module.logger(model)
 
@@ -341,5 +417,96 @@ end
               params.population * params.maximum_initial_sugar
         @test length(unique((state[2], state[3]) for state in citizens)) == length(citizens)
         @test citizen_signature(SugarECS.citizen_snapshot(world)) == citizens
+    end
+end
+
+@testset "deterministic threaded execution" begin
+    if Threads.nthreads() == 1
+        @test !SugarECS.ModelArgs().threaded
+    else
+        @test SugarECS.ModelArgs().threaded
+        params = SugarECS.ModelParams(
+            width = 50,
+            height = 50,
+            population = 2_100,
+            minimum_vision = 3,
+            maximum_vision = 8,
+            minimum_lifespan = 100,
+            maximum_lifespan = 120,
+            movement_mode = SugarECS.SynchronousMovement,
+            disease_catalog_size = 10,
+            initial_diseases_per_citizen = 1,
+        )
+        serial_args = SugarECS.ModelArgs(
+            seed = 901,
+            params = params,
+            steps = 3,
+            threaded = false,
+        )
+        threaded_args = SugarECS.ModelArgs(
+            seed = 901,
+            params = params,
+            steps = 3,
+            threaded = true,
+        )
+
+        serial_world = SugarECS.setup_world(serial_args)
+        threaded_world = SugarECS.setup_world(threaded_args)
+        serial_model = SugarECS.AgentSynchronous.setup_model(serial_args)
+        threaded_model = SugarECS.AgentSynchronous.setup_model(threaded_args)
+        for _ in 1:serial_args.steps
+            SugarECS.step!(serial_world)
+            SugarECS.step!(threaded_world)
+            SugarECS.AgentSynchronous.step!(serial_model)
+            SugarECS.AgentSynchronous.step!(threaded_model)
+            assert_same_ecs_state(serial_world, threaded_world)
+            assert_same_agent_state(
+                SugarECS.AgentSynchronous,
+                serial_model,
+                threaded_model,
+            )
+            @test rand(copy(SugarECS.simulation_rng(serial_world)), UInt64) ==
+                  rand(copy(SugarECS.simulation_rng(threaded_world)), UInt64)
+            @test rand(
+                copy(SugarECS.AgentSynchronous.abmrng(serial_model)),
+                UInt64,
+            ) == rand(
+                copy(SugarECS.AgentSynchronous.abmrng(threaded_model)),
+                UInt64,
+            )
+        end
+        threaded_buffers =
+            Ark.get_resource(threaded_world, SugarECS.SimulationBuffers)
+        @test !hasfield(SugarECS.SimulationBuffers, :task_visibility)
+        @test length(threaded_buffers.destination_tie_counts) >= params.population
+        @test length(threaded_buffers.destination_ties) >=
+              params.population * threaded_buffers.destination_tie_stride
+        @test length(threaded_model.buffers.task_visibility) == Threads.nthreads()
+
+        low_work_params = SugarECS.ModelParams(
+            width = 50,
+            height = 50,
+            population = 2_100,
+            minimum_vision = 0,
+            maximum_vision = 0,
+            movement_mode = SugarECS.SynchronousMovement,
+        )
+        low_work_args = SugarECS.ModelArgs(
+            seed = 903,
+            params = low_work_params,
+            steps = 0,
+            threaded = true,
+        )
+        low_work_world = SugarECS.setup_world(low_work_args)
+        SugarECS.plan_movements!(low_work_world)
+        low_work_buffers =
+            Ark.get_resource(low_work_world, SugarECS.SimulationBuffers)
+        @test isempty(low_work_buffers.destination_tie_counts)
+        @test length(low_work_buffers.destination_ties) ==
+              low_work_buffers.destination_tie_stride
+        low_work_model = SugarECS.AgentSynchronous.setup_model(low_work_args)
+        SugarECS.AgentSynchronous.plan_movements!(low_work_model)
+        @test isempty(low_work_model.buffers.task_visibility)
+
     end
 end

@@ -23,9 +23,11 @@ Base.@kwdef struct ModelParams
     minimum_fertility_age::Int64 = 12
     maximum_fertility_age::Int64 = 50
     reproduction_probability::Float64 = 0.05
-    initial_infection_probability::Float64 = 0.0
-    disease_transmission_probability::Float64 = 0.15
-    disease_duration::Int64 = 15
+    disease_catalog_size::Int64 = 0
+    initial_diseases_per_citizen::Int64 = 0
+    minimum_disease_length::Int64 = 1
+    maximum_disease_length::Int64 = 10
+    immune_system_length::Int64 = 50
     disease_sugar_cost::Int64 = 1
 end
 
@@ -34,7 +36,11 @@ Base.@kwdef struct ModelArgs
     params::ModelParams = ModelParams()
     steps::Int64 = 100
     initial_capacity::Union{Nothing, Matrix{Int64}} = nothing
+    threaded::Bool = Threads.nthreads() > 1
 end
+
+ModelArgs(seed, params, steps, initial_capacity) =
+    ModelArgs(seed, params, steps, initial_capacity, Threads.nthreads() > 1)
 
 function validate(params::ModelParams)
     params.width > 0 || throw(ArgumentError("width must be positive"))
@@ -59,13 +65,28 @@ function validate(params::ModelParams)
         throw(ArgumentError("fertility-age bounds must be ordered and nonnegative"))
     0.0 <= params.reproduction_probability <= 1.0 ||
         throw(ArgumentError("reproduction_probability must be between zero and one"))
-    0.0 <= params.initial_infection_probability <= 1.0 || throw(
-        ArgumentError("initial_infection_probability must be between zero and one"),
+    0 <= params.disease_catalog_size <= 64 ||
+        throw(ArgumentError("disease_catalog_size must be between zero and 64"))
+    0 <= params.initial_diseases_per_citizen <= params.disease_catalog_size || throw(
+        ArgumentError(
+            "initial_diseases_per_citizen must be between zero and disease_catalog_size",
+        ),
     )
-    0.0 <= params.disease_transmission_probability <= 1.0 || throw(
-        ArgumentError("disease_transmission_probability must be between zero and one"),
+    1 <= params.minimum_disease_length <= params.maximum_disease_length || throw(
+        ArgumentError("disease-length bounds must be positive and ordered"),
     )
-    params.disease_duration > 0 || throw(ArgumentError("disease_duration must be positive"))
+    params.maximum_disease_length <= params.immune_system_length || throw(
+        ArgumentError("diseases must be no longer than the immune system"),
+    )
+    params.immune_system_length <= 64 ||
+        throw(ArgumentError("immune_system_length cannot exceed 64"))
+    possible_diseases = sum(
+        UInt128(1) << length
+        for length in params.minimum_disease_length:params.maximum_disease_length
+    )
+    UInt128(params.disease_catalog_size) <= possible_diseases || throw(
+        ArgumentError("disease-length bounds cannot represent the requested catalogue size"),
+    )
     params.disease_sugar_cost >= 0 ||
         throw(ArgumentError("disease_sugar_cost cannot be negative"))
     return nothing

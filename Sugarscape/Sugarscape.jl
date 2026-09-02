@@ -7,6 +7,8 @@ using Random
 export Age,
     CitizenId,
     CitizenState,
+    Disease,
+    DiseaseCatalog,
     Female,
     ImmuneProfile,
     Infection,
@@ -32,17 +34,23 @@ export Age,
     generate_plot_suite,
     gini_coefficient,
     interactive_sugarscape,
+    lorenz_curve,
     main,
     play!,
     plot_model_diagnostics,
+    plot_population_dynamics,
     plot_sugarscape,
+    plot_wealth_distribution,
     rebuild_occupancy!,
     reset!,
     run_model,
     setup_world,
     step!,
     stop!,
-    sugarscape_snapshot
+    sugarscape_snapshot,
+    summary_statistics,
+    wealth_statistics,
+    write_summary_statistics
 
 include("components/citizens.jl")
 

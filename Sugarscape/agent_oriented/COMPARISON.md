@@ -14,33 +14,32 @@ architectures executing the same model semantics, not merely similar variants.
 The benchmark measures a complete setup plus 100 model steps. Each row is the median
 of 20 independently initialized runs after one unmeasured compilation/warm-up run.
 Each ECS/Agents.jl pair uses the same parameters and seed. Measurements were made on
-2026-08-13 with Julia 1.12.6, BenchmarkTools 1.7.0, one Julia thread, and an AMD Ryzen
+2026-08-14 with Julia 1.12.6, BenchmarkTools 1.7.0, one Julia thread, and an AMD Ryzen
 7 5825U CPU on Linux.
 
 The baseline uses a 50 × 50 grid, 400 initial citizens, seed 20260813, and the default
 replacement regime. The extended case uses the same size, population, seed, and
 horizon, with replacement disabled, reproduction enabled at probability 0.02, and an
-initial infection probability of 0.05; all other parameters retain their defaults.
+original-style catalogue of 10 diseases with four initially assigned to every citizen;
+all other parameters retain their defaults.
 
 | Scenario | Implementation | Median time (ms) | Median memory (MiB) | Allocations |
 |---|---|---:|---:|---:|
-| Baseline | ECS sequential | 120.924 | 135.556 | 489,443 |
-| Baseline | Agents.jl sequential | 119.718 | 124.537 | 484,400 |
-| Baseline | ECS synchronous | 112.364 | 146.288 | 557,279 |
-| Baseline | Agents.jl synchronous | 125.198 | 139.187 | 554,892 |
-| Extended | ECS sequential | 83.899 | 97.969 | 406,127 |
-| Extended | Agents.jl sequential | 88.513 | 86.031 | 407,501 |
-| Extended | ECS synchronous | 86.141 | 90.732 | 370,966 |
-| Extended | Agents.jl synchronous | 78.498 | 79.850 | 375,332 |
+| Baseline | ECS sequential | 12.819 | 2.933 | 12,091 |
+| Baseline | Agents.jl sequential | 17.104 | 2.440 | 8,329 |
+| Baseline | ECS synchronous | 15.175 | 4.574 | 16,009 |
+| Baseline | Agents.jl synchronous | 21.426 | 4.334 | 15,133 |
+| Extended | ECS sequential | 12.571 | 12.421 | 44,253 |
+| Extended | Agents.jl sequential | 12.025 | 2.111 | 8,415 |
+| Extended | ECS synchronous | 11.509 | 11.371 | 39,226 |
+| Extended | Agents.jl synchronous | 12.430 | 3.195 | 14,307 |
 
-There is no single winner in these measurements. Sequential baseline time is nearly
-tied: Agents.jl is about 1.0% faster. ECS is about 10.3% faster in the synchronous
-baseline and about 5.2% faster in the extended sequential case. Agents.jl is about
-8.9% faster in the extended synchronous case. The Agents.jl runs use less median
-allocated memory in all four comparisons (about 4.9–12.2%), while allocation counts
-are close. The extended scenario is faster than the baseline because its no-replacement
-population trajectory changes the amount of later work; comparisons should be made
-within a scenario and movement mode, not between scenarios.
+ECS is 25.1% faster than Agents.jl sequential and 29.2% faster than Agents.jl
+synchronous in the baseline. In the extended case the runtimes are closer: Agents.jl
+sequential is 4.3% faster, while ECS synchronous is 7.4% faster. The feature-heavy ECS
+runs allocate more memory because infection and reproduction require staged structural
+changes. Comparisons should be made within a scenario and movement mode, not between
+scenarios.
 
 These are measurements of the checked-in code on one machine, not universal framework
 performance claims. Runtime differences of this size can change with Julia, package,
@@ -52,7 +51,42 @@ julia --project=. Sugarscape/agent_oriented/benchmark.jl
 
 The script accepts `SUGARSCAPE_BENCH_SEED`, `SUGARSCAPE_BENCH_STEPS`,
 `SUGARSCAPE_BENCH_WIDTH`, `SUGARSCAPE_BENCH_HEIGHT`,
-`SUGARSCAPE_BENCH_POPULATION`, and `SUGARSCAPE_BENCH_SAMPLES` overrides.
+`SUGARSCAPE_BENCH_POPULATION`, `SUGARSCAPE_BENCH_SAMPLES`, and
+`SUGARSCAPE_BENCH_THREADED` overrides.
+
+### Multithreaded scaling
+
+Threading is deliberately workload-gated. Small/default simulations use the serial
+kernels, avoiding scheduler overhead. Large synchronous simulations score movement
+destinations in parallel, then perform seeded tie-breaking and state mutation serially
+in stable citizen-ID order. Shuffled-sequential movement is order-dependent and remains
+serial. Its candidate parallel growback and setup kernels were rejected because they did
+not substantially improve complete setup-and-run benchmarks.
+
+Independent paired benchmarks on the same Ryzen 7 5825U showed:
+
+| Implementation | Threads | Scaling workload | Serial (ms) | Threaded (ms) | Speedup |
+|---|---:|---|---:|---:|---:|
+| ECS synchronous | 4 | 300×300, 30,000 citizens, vision 40–50, 10 steps | 1167.72 | 375.71 | 3.11× |
+| ECS synchronous | 8 | same | 1446.19 | 624.52 | 2.32× |
+| Agents.jl synchronous | 4 | 200×200, 10,000 citizens, vision 8–12, 20 steps | 419.40 | 318.78 | 1.32× |
+| Agents.jl synchronous | 8 | same | 267.06 | 176.55 | 1.51× |
+
+Each timing covers complete setup and execution and reports the median of warmed
+serial/threaded runs. The 50×50, 400-citizen default remains below the threading
+thresholds; repeated comparisons found no material runtime or allocation regression.
+The synchronous implementations require at least four Julia threads, 2,000 citizens,
+and 20,000 estimated visibility checks before parallel planning.
+
+Run serial and threaded comparisons in processes with the same thread count by setting
+`SUGARSCAPE_BENCH_THREADED=false` and `true`, respectively. For example:
+
+```sh
+SUGARSCAPE_BENCH_THREADED=false julia -t 8 --project=. \
+  Sugarscape/agent_oriented/benchmark.jl
+SUGARSCAPE_BENCH_THREADED=true julia -t 8 --project=. \
+  Sugarscape/agent_oriented/benchmark.jl
+```
 
 ## Lines of code
 
@@ -75,19 +109,19 @@ awk 'NF && $1 !~ /^#/ {n++} END {print n}' \
 
 | Implementation scope | SLOC | Interpretation |
 |---|---:|---|
-| ECS computational model, both movement modes | 994 | Shared components, resources, features, logging, setup, and runner |
-| Agents.jl sequential | 514 | Self-contained sequential model |
-| Agents.jl synchronous | 604 | Self-contained synchronous model |
-| Both Agents.jl files | 1,118 | Includes duplicated setup, disease, lifecycle, reproduction, and logging |
+| ECS computational model, both movement modes | 1,486 | Shared components, resources, features, logging, setup, and runner |
+| Agents.jl sequential | 728 | Self-contained sequential model |
+| Agents.jl synchronous | 979 | Self-contained synchronous model |
+| Both Agents.jl files | 1,707 | Includes duplicated setup, disease, lifecycle, reproduction, logging, and buffers |
 
-The fairest conclusion depends on the unit of comparison. One Agents.jl variant is
-roughly half the SLOC of the dual-mode ECS implementation. Providing both standalone
-Agents.jl variants, however, takes 124 more SLOC than the shared dual-mode ECS model.
-The ECS movement file itself has 79 shared SLOC, 32 sequential-only SLOC, and 73
-synchronous-only SLOC. Thus dividing all 994 ECS lines between the modes would
-double-count shared infrastructure, while comparing 994 against only one Agents.jl
-file would charge ECS for its second movement mode. The table reports both views
-instead of assigning shared lines arbitrarily.
+The fairest conclusion depends on the unit of comparison. One Agents.jl variant remains
+substantially smaller than the dual-mode ECS implementation. Providing both standalone
+Agents.jl variants, however, takes 221 more SLOC than the shared dual-mode ECS model.
+The reusable-buffer implementations add explicit scratch-state declarations and reset
+logic to each architecture. Dividing all ECS lines between its modes would double-count
+shared infrastructure, while comparing the full ECS scope against only one Agents.jl
+file would charge ECS for its second movement mode. The table reports both views instead
+of assigning shared lines arbitrarily.
 
 ## Architecture
 
@@ -97,11 +131,13 @@ The ECS citizen is an entity assembled from narrow components. Identity, positio
 proposal, vision, metabolism, sugar, age, maximum age, and initial endowment are
 separate value types. Sex is represented by mutually exclusive `Female`/`Male` tag
 components. Infection is structural: an infected citizen has an `Infection` component,
-and recovery removes it. Persistent world state lives in resources: parameters, the
-seeded RNG, clock, next citizen ID, landscape, occupancy grid, step events, and logger.
+whose bit mask identifies every disease carried from the shared catalogue, and recovery
+removes it once the mask is empty. Persistent world state lives in resources: parameters,
+the disease catalogue, seeded RNG, clock, next citizen ID, landscape, occupancy grid,
+step events, and logger.
 
 Each Agents.jl citizen is instead one mutable `@agent` record containing spatial state,
-traits, wealth, age, sex as a `Symbol`, immunity, and
+traits, wealth, age, sex as a `Symbol`, immune genotype and trained phenotype, and
 `infection::Union{Nothing, Infection}`. Infection changes a field value rather than the
 agent's structure. Parameters, landscape, event counters, clock, and logger are model
 properties. `AgentSequential` delegates occupancy to `GridSpace`; `AgentSynchronous`

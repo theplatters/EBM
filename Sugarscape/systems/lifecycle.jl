@@ -1,12 +1,6 @@
-struct DeathRecord
-    entity::Ark.Entity
-    id::Int64
-    starvation::Bool
-    old_age::Bool
-end
-
 function metabolize_and_age!(world)
-    deaths = DeathRecord[]
+    deaths = Ark.get_resource(world, SimulationBuffers).deaths
+    empty!(deaths)
     for (entities, ids, sugars, metabolisms, ages, maximum_ages) in
         Query(world, (CitizenId, Sugar, Metabolism, Age, MaximumAge))
         @inbounds for i in eachindex(entities)
@@ -46,11 +40,11 @@ function replace_dead!(world, amount::Integer)
     params.replace_dead || return nothing
     occupancy = Ark.get_resource(world, OccupancyGrid)
     rng = simulation_rng(world)
-    empty_positions = Position[
-        Position(x, y)
-        for x in 1:params.width for y in 1:params.height
-        if occupancy.citizen_ids[x, y] == 0
-    ]
+    empty_positions = Ark.get_resource(world, SimulationBuffers).empty_positions
+    empty!(empty_positions)
+    for x in 1:params.width, y in 1:params.height
+        occupancy.citizen_ids[x, y] == 0 && push!(empty_positions, Position(x, y))
+    end
     amount <= length(empty_positions) ||
         throw(ArgumentError("not enough empty cells to replace dead citizens"))
     events = Ark.get_resource(world, StepEvents)

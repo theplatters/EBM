@@ -8,6 +8,7 @@ struct ReproductiveRecord
     sugar::Int64
     maximum_age::Int64
     initial_endowment::Int64
+    immune_genotype::UInt64
 end
 
 struct BirthSpec
@@ -20,6 +21,7 @@ struct BirthSpec
     metabolism::Int64
     maximum_age::Int64
     initial_endowment::Int64
+    immune_genotype::UInt64
     sex::Union{Female, Male}
 end
 
@@ -36,6 +38,7 @@ function reproductive_records(world)
         ages,
         maximum_ages,
         endowments,
+        immunities,
     ) in Query(
         world,
         (
@@ -47,6 +50,7 @@ function reproductive_records(world)
             Age,
             MaximumAge,
             InitialEndowment,
+            ImmuneProfile,
         ),
     )
         @inbounds for i in eachindex(entities)
@@ -66,6 +70,7 @@ function reproductive_records(world)
                     sugars[i].val,
                     maximum_ages[i].val,
                     endowments[i].val,
+                    immunities[i].genotype,
                 ),
             )
         end
@@ -126,6 +131,12 @@ function plan_births(world)
                 choose_inherited(rng, mother.metabolism, father.metabolism),
                 choose_inherited(rng, mother.maximum_age, father.maximum_age),
                 child_endowment,
+                inherit_immune_genotype(
+                    rng,
+                    mother.immune_genotype,
+                    father.immune_genotype,
+                    params.immune_system_length,
+                ),
                 rand(rng, Bool) ? Female() : Male(),
             ),
         )
@@ -162,6 +173,7 @@ function commit_births!(world, births)
             sugar = birth.initial_endowment,
             maximum_age = birth.maximum_age,
             initial_endowment = birth.initial_endowment,
+            immune_genotype = birth.immune_genotype,
             sex = birth.sex,
         )
         occupancy.citizen_ids[birth.position.x, birth.position.y] = citizen_id

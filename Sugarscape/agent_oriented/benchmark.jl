@@ -15,6 +15,13 @@ function env_integer(name, default)
     return value
 end
 
+function env_boolean(name, default)
+    value = lowercase(get(ENV, name, string(default)))
+    value in ("true", "1", "yes") && return true
+    value in ("false", "0", "no") && return false
+    throw(ArgumentError("$name must be true or false"))
+end
+
 function benchmark_runner(label, runner, args; samples)
     runner(args) # compile and warm the complete setup-and-run path
     BENCHMARK_RUNNER[] = runner
@@ -47,13 +54,23 @@ function scenario_params(name, movement_mode, width, height, population)
             replace_dead = false,
             reproduction_enabled = true,
             reproduction_probability = 0.02,
-            initial_infection_probability = 0.05,
+            disease_catalog_size = 10,
+            initial_diseases_per_citizen = 4,
         )
     end
     throw(ArgumentError("unknown scenario: $name"))
 end
 
-function benchmark_scenario(name; seed, steps, width, height, population, samples)
+function benchmark_scenario(
+    name;
+    seed,
+    steps,
+    width,
+    height,
+    population,
+    samples,
+    threaded,
+)
     results = NamedTuple[]
     pairs = (
         (
@@ -73,7 +90,12 @@ function benchmark_scenario(name; seed, steps, width, height, population, sample
     )
     for (ecs_label, ecs_runner, agent_label, agent_runner, movement_mode) in pairs
         params = scenario_params(name, movement_mode, width, height, population)
-        args = SugarModel.ModelArgs(seed = seed, params = params, steps = steps)
+        args = SugarModel.ModelArgs(
+            seed = seed,
+            params = params,
+            steps = steps,
+            threaded = threaded,
+        )
         push!(results, benchmark_runner(ecs_label, ecs_runner, args; samples = samples))
         push!(results, benchmark_runner(agent_label, agent_runner, args; samples = samples))
     end
@@ -113,6 +135,7 @@ function main()
     height = env_integer("SUGARSCAPE_BENCH_HEIGHT", 50)
     population = env_integer("SUGARSCAPE_BENCH_POPULATION", 400)
     samples = env_integer("SUGARSCAPE_BENCH_SAMPLES", 20)
+    threaded = env_boolean("SUGARSCAPE_BENCH_THREADED", Threads.nthreads() > 1)
 
     println("# Sugarscape benchmark results")
     println("\n- Date: $(today())")
@@ -120,6 +143,7 @@ function main()
     println("- BenchmarkTools: $(pkgversion(BenchmarkTools))")
     println("- CPU: $(first(Sys.cpu_info()).model) ($(Sys.CPU_NAME))")
     println("- Julia threads: $(Threads.nthreads())")
+    println("- Threaded model kernels: $threaded")
     println("- Seed: $seed")
     println("- Grid/population/steps: $(width)×$(height) / $population / $steps")
     println("- Samples: $samples (one complete setup plus run per sample; median reported)")
@@ -133,6 +157,7 @@ function main()
             height = height,
             population = population,
             samples = samples,
+            threaded = threaded,
         )
         print_results(scenario, results)
     end
