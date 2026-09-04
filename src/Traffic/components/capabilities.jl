@@ -49,8 +49,6 @@ Base.@kwdef struct CapabilityModel <: OccupancyStrategy
     social_trace_retention::Float64 = 0.9
     social_trace_deposit::Float64 = 0.25
     max_speed::Int = 3
-    speed_clearance::Float64 = 0.0
-    prefer_lane_over_speed::Bool = false
     replacement_policy::CapabilityReplacementPolicy = EntryDrawReplacement()
 end
 
@@ -83,8 +81,6 @@ function validate(model::CapabilityModel)
     model.social_trace_deposit > 0.0 ||
         throw(ArgumentError("social_trace_deposit must be positive"))
     1 <= model.max_speed <= 3 || throw(ArgumentError("max_speed must be in 1:3"))
-    model.speed_clearance >= 0.0 ||
-        throw(ArgumentError("speed_clearance must be nonnegative"))
     validate(model.replacement_policy)
     return model
 end
@@ -144,6 +140,15 @@ struct SpeedAdjustment
     max_speed::Int
 end
 
+struct RiskAversion
+    value::Float64
+    function RiskAversion(value::Real)
+        value = Float64(value)
+        0.0 <= value <= 1.0 || throw(ArgumentError("risk aversion must be in [0, 1]"))
+        new(value)
+    end
+end
+
 """Private observation copied from the committed state at the start of a tick."""
 struct LocalObservation
     same_left::Float64
@@ -183,8 +188,9 @@ end
 
 MovementPath(position::Position) = MovementPath((position, position, position))
 
-"""Heritable optional components, excluding acquired habit and belief state."""
+"""Heritable risk aversion and optional components, excluding acquired state."""
 struct CapabilityGenome
+    risk_aversion::Float64
     same_direction::Union{Nothing, Float64}
     opposite_direction::Union{Nothing, Float64}
     avoidance::Union{Nothing, Float64}
@@ -192,12 +198,6 @@ struct CapabilityGenome
     convention::Union{Nothing, ConventionPerception}
     social_habit::Union{Nothing, SocialHabitFormation}
 end
-
-# Preserve the pre-social-habit constructor for callers defining legacy genomes.
-CapabilityGenome(same_direction, opposite_direction, avoidance, habit, convention) =
-    CapabilityGenome(
-        same_direction, opposite_direction, avoidance, habit, convention, nothing,
-    )
 
 const CAPABILITY_COMPONENTS = (
     SameDirectionResponse,

@@ -24,6 +24,7 @@ function step!(world, strategy::OccupancyStrategy)
 end
 
 function step!(world, ::CapabilityModel)
+    reset!(Ark.get_resource(world, CapabilityTickDiagnostics))
     store_prev_positions!(world)
     rebuild_occupancy!(world)
     calculate_capability_proposals!(world)

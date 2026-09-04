@@ -7,9 +7,8 @@ const SEEDS = 20260730:20260734
 const STEPS = 5_000
 const BURN_IN = 1_000
 
-"""Set `TRAFFIC_PREFER_LANE=true` to run all conditions lane-first."""
-const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
-const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", "plots")
+# Historical diagnostic; current-semantics outputs must not overwrite retained evidence.
+const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", joinpath(@__DIR__, "..", "plots", "historical_regenerated"))
 
 function simulate(model, seed; capture_every = nothing)
     args = T.ModelArgs(
@@ -64,12 +63,10 @@ end
 entry_habit = T.CapabilityModel(
     habit_share = 0.5,
     convention_share = 0.0,
-    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
 )
 entry_control = T.CapabilityModel(
     habit_share = 0.0,
     convention_share = 0.0,
-    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
 )
 evolutionary_policy = T.EvolutionaryReplacement(
     capability_mutation_rate = 0.02,
@@ -78,13 +75,11 @@ evolutionary_policy = T.EvolutionaryReplacement(
 evolutionary_habit = T.CapabilityModel(
     habit_share = 0.5,
     convention_share = 0.0,
-    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     replacement_policy = evolutionary_policy,
 )
 evolutionary_control = T.CapabilityModel(
     habit_share = 0.0,
     convention_share = 0.0,
-    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     replacement_policy = evolutionary_policy,
 )
 
@@ -162,9 +157,9 @@ for (panel, (metric, ylabel)) in enumerate(metrics_to_plot)
 end
 Label(
     figure[0, :],
-    "No-convention ablation — mean ± 1 SD across $(length(SEEDS)) paired runs" *
-    (PREFER_LANE_OVER_SPEED ? " (lane-first)" : "");
+    "No-convention ablation — mean ± 1 SD across $(length(SEEDS)) paired runs";
     fontsize = 21,
     font = :bold,
 )
 save(joinpath(OUTPUT_DIR, "no_convention_comparison.png"), figure; px_per_unit = 2)
+println("diagnostic outputs use current semantics: $OUTPUT_DIR")

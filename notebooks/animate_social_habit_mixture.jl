@@ -13,7 +13,12 @@ seed = env_int("TRAFFIC_ANIMATION_SEED", 20260901)
 steps = env_int("TRAFFIC_ANIMATION_STEPS", 5_000)
 capture_every = env_int("TRAFFIC_ANIMATION_EVERY", 25)
 framerate = env_int("TRAFFIC_ANIMATION_FRAMERATE", 15)
-output_dir = get(ENV, "TRAFFIC_OUTPUT_DIR", joinpath(@__DIR__, "..", "plots"))
+# Historical diagnostic under current semantics; keep it separate from retained evidence.
+output_dir = get(
+    ENV,
+    "TRAFFIC_OUTPUT_DIR",
+    joinpath(@__DIR__, "..", "plots", "historical_regenerated"),
+)
 
 config = ExperimentConfig(
     seeds = seed:seed,

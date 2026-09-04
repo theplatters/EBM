@@ -11,6 +11,7 @@ struct TrafficCarState
     speed::Int
     capabilities::UInt8
     social_habitus::Float64
+    risk_aversion::Float64
 end
 
 """Immutable, renderer-independent view of the Traffic simulation at one step."""
@@ -64,6 +65,7 @@ function traffic_snapshot(world; step::Integer = 0)
                         speeds[index].val,
                         capability_mask(world, entity),
                         social_habitus,
+                        Ark.get_components(world, entity, (RiskAversion,))[1].value,
                     ),
                 )
             end
@@ -87,6 +89,7 @@ function traffic_snapshot(world; step::Integer = 0)
                         strategies[index],
                         1,
                         UInt8(0),
+                        0.0,
                         0.0,
                     ),
                 )

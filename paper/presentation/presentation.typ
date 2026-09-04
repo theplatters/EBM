@@ -136,7 +136,7 @@
 
 #v(0.5fr)
 #align(center)[
-  #scale(x: 130%, y: 130%, reflow: true)[#ecs-data-layout]
+  #scale(x: 150%, y: 150%, reflow: true)[#ecs-data-layout]
 ]
 
 #v(0.5fr)
@@ -252,17 +252,17 @@
 
 #align(center)[
   #text(size: 18pt)[
-    previous positions $arrow$ occupancy + bounded observations $arrow$ one LR/lane proposal
-    $arrow$ speed/path proposal $arrow$ synchronous micro-step conflict resolution
-    $arrow$ traces/replacement $arrow$ state and logging
+    committed positions $arrow$ bounded observations $arrow$ binding LR/lane decision
+    $arrow$ risk-adjusted speed proposal $arrow$ synchronous micro-step collision detection
+    $arrow$ successful-driver traces/replacement $arrow$ acquired state/logging
   ]
 ]
 
 - All cars decide from *one committed pre-decision state*.
-- The world resolves their proposed paths together; successful drivers leave
-  traces, collided cars are replaced, then acquired state and aggregates are
-  updated.
-- This ordering makes both update order and information availability explicit.
+- LR determines the final lane; speed is chosen only on that binding lane.
+- A car attempts maximum speed (normally 3), makes one seeded draw, and accepts danger with probability $1 - "risk aversion"$.
+- Rejected danger causes progressively lower-speed tests; speed 1 is the unavoidable-risk fallback when every speed is dangerous.
+- Successful drivers leave traces, collided cars are replaced, then acquired state and aggregates are updated.
 
 == What enters LR?
 
@@ -304,29 +304,54 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   the underlying leakage.
 ]
 
-== Acquired capabilities
+== Capabilities under uniform entry risk
 #figure()[
-  #image("../../plots/social_habit_comparison.png", height: 85%)
+  #image("../../plots/uniform_risk_capability_comparison.png", height: 85%)
 ]
 #align(center)[#text(
   size: 13pt,
-)[*Takeaway:* among synchronous treatments, SocialHabit is the strongest pure capability; static mixing improves further.]]
+)[*Takeaway:* non-heritable entry risk lets the mixed evolutionary treatment isolate capability evolution from inherited-risk selection.]]
 #speaker-note[
-  The plot is the 30-paired-seed, post-burn-in comparison. SocialHabit's
-  advantage reflects successful-driver traces observed locally, not direct
-  access to driver success or a population-level statistic.
-  The black and purple columns are unit-speed sequential references with
-  within-tick ordering information, not like-for-like capability treatments.
+  30 paired seeds 20260901:20260930, 5,000 ticks, 1,000 burn-in, population 120,
+  a 2 x 300 ring, lookahead 20. Six synchronous CapabilityModel treatments and
+  two sequential references. Five synchronous treatments use EntryDrawReplacement,
+  so capabilities are redrawn from entry shares and risk is independently
+  Uniform(0,1) on replacement with no evolution. The mixed evolutionary treatment
+  uses EvolutionaryReplacement, so stable capabilities and quantitative traits
+  inherit and mutate, but an experiment-only post-step hook replaces every
+  newborn's temporarily inherited RiskAversion with an independent seeded
+  Uniform(0,1) draw before its next decision; that risk stays fixed for the car's
+  lifetime and is non-heritable. Capability mutation rate is .02 and quantitative
+  trait mutation scale is .05. Sequential references have no RiskAversion
+  component. Keeping risk independent and non-heritable separates capability
+  evolution from inherited-risk selection.
 ]
 
-== Evolutionary mixture
+== Mixed capability dynamics
 #figure()[
-  #image("../../plots/social_habit_mixture_ensemble_dynamics.png", height: 56%)
+  #image("../../plots/uniform_risk_mixture_ensemble_dynamics.png", width: 88%)
 ]
-#align(center)[#text(size: 13pt)[*Takeaway:* evolution improves coordination without collapsing profiles.]]
 #align(center)[#text(
-  size: 12pt,
-)[Convention *0.867 [0.848, 0.885]*  ·  coordinated time *0.828 [0.797, 0.859]*  ·  replacements/car-step *0.0380 [0.0357, 0.0403]*]]
+  size: 13pt,
+)[*Takeaway:* mean capability shares are higher under mixed evolution, but between-seed variation is substantial.]]
+#speaker-note[
+  This dynamics artifact comes from `notebooks/run_mixture_ensemble_dynamics.jl`.
+  Design: 30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in,
+  sampling every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Two
+  scenarios run side by side — a static mixture using `EntryDrawReplacement`, and
+  an evolutionary mixture using `EvolutionaryReplacement`. In the static scenario
+  capabilities are redrawn from entry shares with no evolution; in the evolutionary
+  scenario capabilities and quantitative traits inherit and mutate, but after each
+  replacement a seeded, independent Uniform(0,1) draw overwrites the newborn's
+  temporarily inherited risk before its next decision, so risk is fixed for the
+  car's life and non-heritable. Solid lines are across-seed means and the ribbons
+  are ±1 SD; the dashed line marks the burn-in boundary. Mean final shares match
+  the uniform-risk comparison CSV: static Habit .513, Convention .514,
+  SocialHabit .515, and all three .133, versus evolutionary .577, .563, .600,
+  and .179. The gap is real in sample means, but the evolutionary trajectories
+  show substantial between-seed variation, so the figure supports a difference in
+  ensemble means rather than a universal directional claim for every seed.
+]
 
 = Possible benefits and drawbacks of using ECS for ABMs
 
@@ -335,7 +360,7 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 - *Compositional heterogeneity* offers a new approach to heterogeneous agents. (Dynamic acquisition of new capabilities)
 - Potential *performance* benefits compared to "agent-oriented" implementations @JuliaDynamicsABMFrameworksComparison2026.
   - Easy to utilize the GPU.
-  - More ergonomic than the big parallel ABM frameworks (FLAME GPU, ) with potentially minimal loss in performance.
+  - More ergonomic than the big parallel ABM frameworks (FLAME GPU) with potentially minimal loss in performance.
 - Clear support for *modularity* and separation of concerns
 - Encourages a more *systemic* rather than purely individual-centered modeling perspective
 
@@ -384,87 +409,33 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 
 
 
-== Single-path diagnostics
-
-#figure(caption: [Analytical histories expose temporal variation in a current capability run.])[
-  #image("../../plots/capability_dynamics.png", height: 52%)
-]
-#align(center)[#text(
-  size: 12pt,
-)[*Diagnostic:* seed `20260730`, mixed static entry; one path illustrates fluctuation, not replicated evidence.]]
-
-== Lane-first vs. speed-first
+== Robustness: fixed and evolving risk aversion
 #figure()[
-  #image("../../plots/speed_sensitivity_comparison.png", height: 65%)
-]
-#align(center)[#text(size: 13pt)[*Takeaway:* lane-first improves progress and reduces replacements under both regimes.]]
-#speaker-note[
-  Lane-first raises completed progress by 0.166 [0.154, 0.178] cells per
-  car-step under static entry and 0.049 [0.040, 0.058] under evolution;
-  replacements per car-step fall by 0.0486 and 0.0162. Clearance and a speed-2 cap are
-  different treatments, not generic improvements. The published baseline
-  remains the explicit historical speed-first rule.
-]
-
-== Lane-first capability comparison
-#figure()[
-  #image("../../plots/lane_first/social_habit_comparison.png", height: 60%)
+  #image("../../plots/risk_aversion_comparison.png", height: 85%)
 ]
 #align(center)[#text(
   size: 13pt,
-)[*Takeaway:* lane-first transforms synchronous coordination — every capability treatment now matches or beats the sequential reference.]]
+)[*Takeaway:* fixed zero risk has the highest throughput, while replacement pressure is nonmonotone.]]
 #speaker-note[
-  Full rerun of the published 5,000-tick, 30-paired-seed design with
-  `prefer_lane_over_speed=true`. Convention strength rises from 0.439 to 0.874
-  (Habit), 0.429 to 0.769 (Convention), 0.508 to 0.885 (SocialHabit), 0.630 to
-  0.911 (static entry), and 0.867 to 0.944 (evolutionary); replacement rates
-  fall by roughly three quarters. Even no-habit improves slightly
-  (0.230 $->$ 0.262). Lane-first only reorders the action search of the
-  synchronous capability model, so the sequential reference rows are
-  unchanged.
+  This is the current 30-paired-seed risk experiment: seeds 20260901:20260930,
+  5,000 ticks, 1,000-tick burn-in, 120 cars, a 2 x 300 road, lookahead 20,
+  mixed capabilities, and mutation rate 0.02.
 ]
 
-== Lane-first mixture dynamics
+== Robustness: risk distributions
 #figure()[
-  #image("../../plots/lane_first/social_habit_mixture_ensemble_dynamics.png", height: 62%)
+  #image("../../plots/risk_aversion_distribution.png", height: 70%)
 ]
 #align(center)[#text(
   size: 13pt,
-)[*Takeaway:* under lane-first, coordination is faster and more stable; evolution still adds robustness.]]
+)[*Takeaway:* evolution improves average outcomes, but survival selection is path dependent.]]
 #speaker-note[
-  Static-entry post-burn-in convention is 0.910 with replacement pressure
-  0.0311; evolutionary is 0.944 with 0.0230. Coordinated time reaches 0.932
-  (static) and 0.982 (evolutionary). Capability-profile diversity remains
-  dispersed under evolution, mirroring the speed-first result.
+  Entry risk is Uniform(0, 1). Evolution uniformly selects a survivor and
+  inherits risk and capabilities with Gaussian mutation scale 0.05, clamped to
+  [0, 1]. Fixed interventions are reset before each decision without consuming
+  RNG. The evolved final mean is below .5, but huge between-seed variation and
+  low/high-risk regimes prevent a claim of universal selection toward lower risk.
 ]
-
-== Lane-first diagnostics
-#grid(
-  columns: (1fr, 1fr),
-  column-gutter: 1em,
-  [
-    #figure(caption: [No-convention ablation (5 paired seeds).])[
-      #image("../../plots/lane_first/no_convention_comparison.png", height: 52%)
-    ]
-  ],
-  [
-    #figure(caption: [Static-entry single-seed history.])[
-      #image("../../plots/lane_first/capability_dynamics.png", height: 52%)
-    ]
-  ],
-)
-#align(center)[#text(
-  size: 12pt,
-)[*Diagnostic:* habit's coordination benefit survives without convention learning; single-seed paths still fluctuate.]]
-
-== Robustness and interpretation
-
-- The capability ensemble samples histories every 25 ticks and marks the
-  1,000-tick burn-in; broad regime averages are stable after burn-in while
-  individual windows fluctuate.
-- The sequential reference is not like-for-like with synchronous capability
-  outcomes: it is unit-speed and supplies within-tick activation-order
-  information.
 
 
 == Bibliography

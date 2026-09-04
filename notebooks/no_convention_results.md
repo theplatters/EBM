@@ -1,5 +1,9 @@
 # Traffic Experiments Without Convention Perception
 
+> **HISTORICAL / PRE-REWRITE RESULT:** This report and its retained plots are
+> historical diagnostics. They were produced before the CapabilityModel rewrite
+> and must not be presented as current evidence.
+
 ## Treatment boundary
 
 This ablation fixes `convention_share = 0.0`, removing both the component and

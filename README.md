@@ -73,7 +73,7 @@ execution paths:
 - synchronous unit-speed traffic with eight occupancy-forecast strategies,
   including heterogeneous per-car strategy profiles;
 - synchronous multi-speed `CapabilityModel` traffic with bounded local
-  information and collision replacement;
+  information, risk-adjusted speed choice, and collision replacement;
 - an Agents.jl sequential reference model used for matched contrasts.
 
 ### Capability semantics
@@ -89,9 +89,21 @@ same lane-response value, LR:
   vanishing traces deposited by successful drivers.
 
 Capability shares are independent, so a driver may carry any mixture. Static
-replacement redraws capabilities from entry shares. Evolutionary replacement
-inherits stable capabilities and quantitative traits from a surviving driver
-with mutation, while acquired dispositions reset for the newborn.
+replacement redraws capabilities from entry shares. Risk aversion is mandatory
+in [0, 1], is uniform at entry, and newborns always start at maximum speed.
+Evolutionary replacement inherits capabilities and risk aversion from one
+uniformly selected survivor, applies Gaussian mutation (scale 0.05 in the
+published run) clamped to [0, 1], while acquired dispositions reset.
+
+Each tick proceeds from committed positions to bounded observations, a binding
+LR/lane decision, a risk-adjusted speed proposal on that lane, synchronous
+micro-step collision detection, successful-driver traces and replacement, and
+acquired-state/logging updates. `propose_lanes!` maps LR's sign (with the
+existing lane-error process) to the final lane; speed never searches another
+lane. Each car makes one seeded draw and accepts danger with
+`rand(rng) > risk_aversion`, otherwise testing lower speeds. Exact conflicts
+against extrapolated committed motion are symmetric and have no winner;
+private proposals are invisible, so simultaneous proposals can collide.
 
 ```julia
 using EBM
@@ -149,25 +161,34 @@ The current studies are reproducible Julia scripts under `notebooks/`:
 
 | Study | Generator | Report |
 |---|---|---|
-| Habit, Convention, SocialHabit, mixtures, replacement, and sequential contrast | `run_social_habit_experiment.jl` | [social_habit_experiments.md](notebooks/social_habit_experiments.md) |
-| Aggregated mixture dynamics with mean ± SD | `run_mixture_ensemble_dynamics.jl` | [social_habit_experiments.md](notebooks/social_habit_experiments.md) |
-| Speed-choice sensitivity | `run_speed_sensitivity_experiment.jl` | [speed_sensitivity_results.md](notebooks/speed_sensitivity_results.md) |
-| Capability mechanism diagnostics | `generate_capability_scenario.jl` | [capability_model_results.md](notebooks/capability_model_results.md) |
-| No-convention comparison | `generate_no_convention_experiments.jl` | [no_convention_results.md](notebooks/no_convention_results.md) |
+| Risk aversion and capability evolution | `run_risk_aversion_experiment.jl` | [risk_aversion_results.md](notebooks/risk_aversion_results.md) |
+| Uniform entry-risk capability comparison | `run_uniform_risk_capability_comparison.jl` | [plots/README.md](plots/README.md) |
+| Uniform-risk mixed-capability dynamics (mean ± SD) | `run_mixture_ensemble_dynamics.jl` | [plots/README.md](plots/README.md) |
+| Historical capability/social-habit comparisons | retained reports | [social_habit_experiments.md](notebooks/social_habit_experiments.md), [capability_model_results.md](notebooks/capability_model_results.md), [speed_sensitivity_results.md](notebooks/speed_sensitivity_results.md) |
+| Historical no-convention comparison | retained generator/artifacts | [no_convention_results.md](notebooks/no_convention_results.md) |
 | Heterogeneous occupancy strategies | `generate_heterogeneous_strategy.jl` | [heterogeneous_strategy_report.md](notebooks/heterogeneous_strategy_report.md) |
 | Eight-strategy benchmark | `strategy_analysis.jl` | [strategy_analysis.md](notebooks/strategy_analysis.md) |
+
+The uniform entry-risk capability comparison is distinct from the risk-aversion
+study. It fixes each capability-model car's risk aversion as an independent,
+non-heritable Uniform(0,1) draw and runs 8 conditions — 5 static-entry capability
+treatments, 1 mixed evolutionary treatment whose temporarily inherited risk is
+overwritten by a fresh entry draw, and 2 sequential references — isolating
+capability evolution from inherited-risk selection. The risk-aversion study
+instead varies the risk itself.
 
 For example:
 
 ```sh
-julia --project=. -t auto notebooks/run_social_habit_experiment.jl
-julia --project=. -t auto notebooks/run_mixture_ensemble_dynamics.jl
-julia --project=. -t auto notebooks/run_speed_sensitivity_experiment.jl
+julia --project=. -t auto notebooks/run_risk_aversion_experiment.jl
 ```
 
-These studies can be expensive: the principal comparisons use 30 paired seeds
-and 5,000 ticks. Most scripts accept `TRAFFIC_REPLICATES`, `TRAFFIC_STEPS`,
-`TRAFFIC_BURN_IN`, `TRAFFIC_LOOKAHEAD`, and `TRAFFIC_OUTPUT_DIR` overrides.
+The current risk-aversion, uniform-risk capability, and uniform-risk
+mixture-dynamics studies all use 30 paired seeds, 5,000 ticks, and a 1,000-tick
+burn-in; historical comparisons likewise use 30 paired seeds and 5,000 ticks,
+which can be expensive to reproduce. Most scripts
+accept `TRAFFIC_REPLICATES`, `TRAFFIC_STEPS`, `TRAFFIC_BURN_IN`,
+`TRAFFIC_LOOKAHEAD`, and `TRAFFIC_OUTPUT_DIR` overrides.
 The generated-artifact inventory and relic policy are recorded in
 [plots/README.md](plots/README.md).
 

@@ -13,6 +13,16 @@ mutable struct Logger <: AbstractLogger
     distribution_A::Vector{Vector{Float64}}
     lr::Vector{Vector{Float64}}
     stay_ratio::Vector{Float64}
+    mean_risk_aversion::Vector{Float64}
+    std_risk_aversion::Vector{Float64}
+    distribution_risk_aversion::Vector{Vector{Float64}}
+    survivor_risk::Vector{Vector{Float64}}
+    selected_parent_risk::Vector{Vector{Float64}}
+    dangerous_proposals::Vector{Int64}
+    accepted_dangerous_proposals::Vector{Int64}
+    mean_proposed_speed::Vector{Float64}
+    mean_realized_speed::Vector{Float64}
+    replacement_pressure::Vector{Float64}
 end
 
 Logger() = Logger(
@@ -28,6 +38,8 @@ Logger() = Logger(
     Vector{Vector{Float64}}(),
     Vector{Vector{Float64}}(),
     Vector{Float64}(),
+    Float64[], Float64[], Vector{Vector{Float64}}(), Vector{Vector{Float64}}(),
+    Vector{Vector{Float64}}(), Int64[], Int64[], Float64[], Float64[], Float64[],
 )
 
 function log_lr!(world, logger)
@@ -140,6 +152,17 @@ function collect_component_values(world, ::Type{T}) where {T}
     return values
 end
 
+function collect_risk_values(world)
+    risks = Tuple{Tuple{Int64,Int64},Float64}[]
+    for (entities, components) in Query(world, (RiskAversion,))
+        @inbounds for index in eachindex(entities)
+            push!(risks, (entity_order(entities[index]), components[index].value))
+        end
+    end
+    sort!(risks; by = risk -> risk[1])
+    return [risk[2] for risk in risks]
+end
+
 function logger!(world, ::CapabilityModel)
     logger = Ark.get_resource(world, Logger)
     log_habitus!(world, logger)
@@ -151,6 +174,22 @@ function logger!(world, ::CapabilityModel)
     push!(logger.distribution_A, collect_component_values(world, NearFieldAvoidance))
     log_lr!(world, logger)
     log_stays!(world, logger)
+    diagnostics = Ark.get_resource(world, CapabilityTickDiagnostics)
+    risks = collect_risk_values(world)
+    push!(logger.distribution_risk_aversion, risks)
+    push!(logger.mean_risk_aversion, isempty(risks) ? 0.0 : mean(risks))
+    push!(logger.std_risk_aversion, length(risks) < 2 ? 0.0 : std(risks))
+    push!(logger.survivor_risk, copy(diagnostics.survivor_risks))
+    push!(logger.selected_parent_risk, copy(diagnostics.selected_parent_risks))
+    push!(logger.dangerous_proposals, diagnostics.dangerous_proposals)
+    push!(logger.accepted_dangerous_proposals, diagnostics.accepted_dangerous_proposals)
+    push!(logger.mean_proposed_speed, diagnostics.proposed_speed_count == 0 ? 0.0 :
+          diagnostics.proposed_speed_total / diagnostics.proposed_speed_count)
+    push!(logger.mean_realized_speed, diagnostics.realized_speed_count == 0 ? 0.0 :
+          diagnostics.realized_speed_total / diagnostics.realized_speed_count)
+    population = Ark.get_resource(world, ModelParams).init_agents
+    replacements = isempty(logger.deaths) ? 0 : last(logger.deaths)
+    push!(logger.replacement_pressure, population == 0 ? 0.0 : replacements / population)
     return nothing
 end
 

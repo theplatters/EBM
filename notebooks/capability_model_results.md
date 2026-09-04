@@ -1,65 +1,42 @@
-# Capability Traffic Model: Current Diagnostic
+# Capability Traffic Model: completed rewrite
 
-## Model boundary
+> **Current report.** The former `capability_*` figures are historical retained
+> artifacts from removed speed-first/lane-first semantics. They are not current
+> evidence. The current 30-seed results are in
+> [risk_aversion_results.md](risk_aversion_results.md).
 
-`CapabilityModel` is the synchronous, multi-speed treatment. Cars share a
-physical proposal core and may independently carry same-direction response,
-opposite-direction response, near-field avoidance, Habit, Convention, and
-SocialHabit. The three acquired capabilities have distinct information
-sources but enter the same LR calculation additively:
+## Capability tick
 
-- Habit reinforces the driver's own realized side with the age-dependent
-  Hodgson–Knudsen update.
-- Convention accumulates a history of locally observed sides chosen by other
-  drivers.
-- SocialHabit accumulates a history of observations of decaying spatial traces
-  deposited by drivers whose paths succeeded.
+The pipeline is: committed positions → bounded observations → binding LR/lane
+decision → risk-adjusted speed proposal on that lane → synchronous micro-step
+collision detection → successful-driver traces and replacement → acquired state
+and logging.
 
-All drivers choose a lane and a speed from 1–3 from one committed pre-decision
-state. Collision replacements preserve direction and reset acquired state.
-Static entry redraws capabilities from fixed probabilities; evolutionary
-replacement inherits a surviving driver's capabilities with mutation.
+`propose_lanes!` maps LR's sign, subject to the existing lane-error process, to
+the final `LaneProposal` for the tick. Speed reads but never changes that lane;
+there is no alternative-lane search. Each car attempts `max_speed` (normally 3),
+makes exactly one seeded draw, and accepts danger when
+`rand(rng) > risk_aversion`. If danger is rejected, progressively lower speeds
+are tested on the binding lane. If all speeds 1 through `max_speed` are
+dangerous, speed 1 is the unavoidable-risk fallback; stopping is not added.
 
-The historical movement treatment searches speed before lane, so speed 3 is
-selected whenever either lane has an exactly non-conflicting extrapolated
-path. This is an explicit treatment assumption rather than a plotting error.
-The replicated [speed-choice sensitivity experiment](speed_sensitivity_results.md)
-shows that trying slower speeds on the LR-selected lane first is a Pareto
-improvement, whereas adding a short clearance rule or imposing a speed-2 cap
-does not improve both safety and completed progress.
+Perceived danger is exact path conflict against other cars' extrapolated
+committed current motion: the same cell at the same micro-step, a position
+exchange, or a diagonal crossing while changing lane. Private
+`LaneProposal`, `SpeedProposal`, and `MovementPath` values are invisible.
+Simultaneous private proposals can therefore conflict and crash. Detection is
+symmetric and has no winner.
 
-## Updated 5,000-tick diagnostic
+## Risk and replacement
 
-The diagnostic uses seed `20260730`, 120 cars on a 2 × 300 periodic road,
-lookahead 20, and 5,000 ticks. The mixed treatment assigns independent 0.5
-entry probabilities to Habit, Convention, and SocialHabit. Histories are
-sampled every 25 ticks.
+`RiskAversion` is mandatory in [0, 1]. Initial values and `EntryDraw`
+replacement values are Uniform(0, 1), and all newborns have maximum speed.
+Evolutionary replacement uniformly selects one survivor and inherits risk
+aversion and capabilities from that same parent, with Gaussian trait mutation
+of scale `trait_mutation_scale`, clamped to [0, 1] (zero remains exact).
+Acquired states reset. Logger observables include risk means, standard
+deviations and distributions; survivor and selected-parent risk; dangerous
+max-speed proposal acceptance counts and rate; mean proposed and realized
+speed; and replacement pressure.
 
-For the static-entry mixed trajectory, mean speed changes from 2.158 initially
-to 2.625 at tick 5,000; 77.5% of cars choose speed 3 at the end. The final
-realized convention is 0.333 and 77,375 replacements occur over the full run.
-Final Habit, Convention, and SocialHabit carrier shares are 0.417, 0.483, and
-0.508. This single path illustrates fluctuations; it is not the inferential
-comparison.
-
-![Static-entry mixed dynamics](../plots/capability_dynamics.png)
-
-![Evolutionary mixed dynamics](../plots/capability_evolutionary_dynamics.png)
-
-![No acquired-capability ablation](../plots/capability_ablation_dynamics.png)
-
-The former tick-300 torus snapshots and torus animations were removed because
-they predated the corrected capability semantics and obscured temporal
-variation. The current plots expose speed distribution, realized convention,
-acquired disposition, replacement pressure, and capability composition over
-the complete horizon. Use the replicated
-[social-habit experiment](social_habit_experiments.md) for treatment effects
-and uncertainty.
-
-## Reproduction
-
-```sh
-julia --project=. notebooks/generate_capability_scenario.jl
-```
-
-The command regenerates all three analytical history figures at 5,000 ticks.
+See the current experiment report for design, artifacts, and interpretation.

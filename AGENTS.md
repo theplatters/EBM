@@ -48,12 +48,18 @@ Run commands from the repository root.
 
 Long-running Traffic studies default to 5,000 ticks and often 30 paired seeds.
 Use their documented `TRAFFIC_*` environment overrides for a small development
-run, then rerun the published configuration before updating results. Standard
-plot generators are:
+run, then rerun the published configuration before updating results. The
+current capability generators are:
 
-- `julia --project=. -t auto notebooks/run_social_habit_experiment.jl`
+- `julia --project=. -t auto notebooks/run_risk_aversion_experiment.jl`
+- `julia --project=. -t auto notebooks/run_uniform_risk_capability_comparison.jl`
 - `julia --project=. -t auto notebooks/run_mixture_ensemble_dynamics.jl`
-- `julia --project=. -t auto notebooks/run_speed_sensitivity_experiment.jl`
+
+`run_social_habit_experiment.jl` is a historical/diagnostic generator retained
+for comparison; its default writes to a separate regenerated-output directory
+rather than overwriting retained evidence. The same caution applies to other
+historical Traffic generators.
+
 - `julia --project=. AssetMarket/generate_plots.jl`
 - `julia --project=. ElFasol/generate_plots.jl`
 - `julia --project=. Sugarscape/generate_plots.jl`

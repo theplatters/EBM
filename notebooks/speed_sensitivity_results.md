@@ -1,4 +1,10 @@
-# Speed-choice sensitivity experiment
+# HISTORICAL — Speed-choice sensitivity experiment
+
+> **Historical notice.** Every result and artifact in this report predates the
+> completed CapabilityModel rewrite. It describes removed speed-first/lane-first
+> semantics and is not current evidence. The generator has been removed and
+> this experiment is no longer reproducible against the current model. See
+> [risk_aversion_results.md](risk_aversion_results.md) for the current study.
 
 ## Finding
 
@@ -77,25 +83,10 @@ preferable only if a replacement is valued at more than about 10.6 completed
 cells under static entry or 33.3 under evolution. The clearance policy is
 strictly worse on all reported performance outcomes.
 
-## Implementation and reproduction
+## Provenance
 
-`CapabilityModel` now exposes two optional controls while retaining the
-historical defaults:
-
-```julia
-Traffic.CapabilityModel(
-    prefer_lane_over_speed = true,
-    speed_clearance = 0.0,
-)
-```
-
-The experiment is reproducible with:
-
-```sh
-julia --project=. -t auto notebooks/run_speed_sensitivity_experiment.jl
-```
-
-Run-level observations are in `plots/speed_sensitivity_runs.csv`. The default
-remains speed-first so that the existing 5,000-tick capability comparisons
-retain a common, explicitly identified movement treatment. The ensemble
-evidence supports using lane-first in a subsequent revised-model experiment.
+Run-level observations are retained in `plots/speed_sensitivity_runs.csv`.
+There is deliberately no reproduction command: the generator was removed and
+the controls described above no longer exist in the current CapabilityModel.
+These tables and figures document the old experiment only; use
+`run_risk_aversion_experiment.jl` for current evidence.

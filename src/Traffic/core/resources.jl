@@ -16,6 +16,29 @@ mutable struct SuccessfulDriverTrace
     grid::Matrix{Float64}
 end
 
+mutable struct CapabilityTickDiagnostics
+    survivor_risks::Vector{Float64}
+    selected_parent_risks::Vector{Float64}
+    dangerous_proposals::Int
+    accepted_dangerous_proposals::Int
+    proposed_speed_total::Int
+    proposed_speed_count::Int
+    realized_speed_total::Int
+    realized_speed_count::Int
+end
+
+CapabilityTickDiagnostics() = CapabilityTickDiagnostics(Float64[], Float64[], 0, 0, 0, 0, 0, 0)
+
+function reset!(diagnostics::CapabilityTickDiagnostics)
+    empty!(diagnostics.survivor_risks)
+    empty!(diagnostics.selected_parent_risks)
+    diagnostics.dangerous_proposals = 0
+    diagnostics.accepted_dangerous_proposals = 0
+    diagnostics.proposed_speed_total = diagnostics.proposed_speed_count = 0
+    diagnostics.realized_speed_total = diagnostics.realized_speed_count = 0
+    return diagnostics
+end
+
 SuccessfulDriverTrace(ring::Ring) = SuccessfulDriverTrace(
     zeros(Float64, Int(ring.width), Int(ring.height)),
 )
@@ -53,6 +76,7 @@ function setup_resources!(world, args::ModelArgs{CapabilityModel})
     Ark.add_resource!(world, ring)
     Ark.add_resource!(world, Occupancy(ring))
     Ark.add_resource!(world, SuccessfulDriverTrace(ring))
+    Ark.add_resource!(world, CapabilityTickDiagnostics())
     Ark.add_resource!(world, MeanHabitus(0.0, 0.0))
     Ark.add_resource!(world, SimulationRNG(args.seed))
     Ark.add_resource!(world, params)

@@ -228,6 +228,8 @@ function propose_lanes!(world)
       end
       rand(rng) < params.ϵ && (go_left = !go_left)
       lane = directions[index] == Clockwise ? (go_left ? 1 : 2) : (go_left ? 2 : 1)
+      # LaneProposal is the binding lane for this tick. Speed selection may
+      # not revise the LR decision.
       proposals[index] = LaneProposal(lane)
       decisions[index] = LR(score)
     end

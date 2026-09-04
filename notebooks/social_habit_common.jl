@@ -7,8 +7,19 @@ using Statistics
 const T = EBM.Traffic
 const S = T.SequentialModel
 
-"""Set `TRAFFIC_PREFER_LANE=true` to run every capability condition lane-first."""
-const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
+"""Replace only newborns' temporary inherited risk with an entry draw."""
+function uniform_newborn_risk!(world, entities_before_step, _step)
+    newborns = collect(
+        entity for (entities, _) in T.Query(world, (T.Position,))
+            for entity in entities if entity ∉ entities_before_step
+    )
+    sort!(newborns; by = entity -> (getfield(entity, :_id), getfield(entity, :_gen)))
+    rng = T.simulation_rng(world)
+    for entity in newborns
+        T.Ark.set_components!(world, entity, (T.RiskAversion(rand(rng)),))
+    end
+    return length(newborns)
+end
 
 const CAPABILITY_SCENARIOS = (
     :no_habit,
@@ -131,7 +142,6 @@ function capability_model(config, scenario::Symbol)
         social_trace_retention = config.trace_retention,
         social_trace_deposit = config.trace_deposit,
         max_speed = config.max_speed,
-        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
         replacement_policy = replacement_policy,
     )
 end
@@ -283,7 +293,16 @@ function summarize_samples(
     )
 end
 
-function run_capability_condition(config, seed, scenario)
+"""Run one capability treatment.
+
+`post_step_hook`, when supplied, is called as
+`post_step_hook(world, entities_before_step, step)` immediately after the
+capability tick and before any summary metrics are sampled.  This is an
+experiment intervention point; the default preserves the ordinary simulation
+behavior. The tick-internal logger has already sampled by this point, so its
+risk fields describe the temporary pre-intervention newborn state.
+"""
+function run_capability_condition(config, seed, scenario; post_step_hook = nothing)
     validate(config)
     model = capability_model(config, scenario)
     world = T.setup_world(
@@ -301,7 +320,13 @@ function run_capability_condition(config, seed, scenario)
     time_to_convention = nothing
 
     for step in 1:config.steps
+        entities_before_step = if post_step_hook === nothing
+            nothing
+        else
+            Set(entity for (entities, _) in T.Query(world, (T.Position,)) for entity in entities)
+        end
         T.step!(world, model)
+        post_step_hook === nothing || post_step_hook(world, entities_before_step, step)
         strength = convention_strength(world)
         isnothing(time_to_convention) && strength >= config.convention_target &&
             (time_to_convention = step)
@@ -541,6 +566,7 @@ export CAPABILITY_SCENARIOS,
     run_capability_condition,
     run_experiment,
     run_sequential_condition,
+    uniform_newborn_risk!,
     validate_results,
     write_results
 

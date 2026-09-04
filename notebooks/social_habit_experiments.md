@@ -1,4 +1,9 @@
-# Socially Formed Habit Experiment
+# HISTORICAL — Socially Formed Habit Experiment
+
+> **Historical notice.** The numerical results and linked `social_habit_*`
+> artifacts below were generated under pre-rewrite CapabilityModel semantics.
+> They are retained for provenance only, not as current evidence. The current
+> capability experiment is [risk aversion](risk_aversion_results.md).
 
 ## Capabilities compared
 

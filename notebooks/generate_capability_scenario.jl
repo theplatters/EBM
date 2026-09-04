@@ -4,16 +4,14 @@ using Statistics
 
 const T = EBM.Traffic
 
-"""Set `TRAFFIC_PREFER_LANE=true` to run all scenarios lane-first."""
-const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
-const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", "plots")
+# Diagnostics use current semantics and write outside retained historical evidence.
+const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", joinpath(@__DIR__, "..", "plots", "historical_regenerated"))
 
 args = T.ModelArgs(
     seed = 20260730,
     params = T.ModelParams(lookahead = 20),
     prediction_strategy = T.CapabilityModel(
         social_habit_share = 0.5,
-        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     ),
     steps = 5_000,
 )
@@ -49,7 +47,6 @@ evolutionary_args = T.ModelArgs(
     seed = args.seed,
     params = args.params,
     prediction_strategy = T.CapabilityModel(
-        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
         replacement_policy = T.EvolutionaryReplacement(
             capability_mutation_rate = 0.02,
             trait_mutation_scale = 0.05,
@@ -70,7 +67,6 @@ ablation_args = T.ModelArgs(
         habit_share = 0.0,
         convention_share = 0.0,
         social_habit_share = 0.0,
-        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     ),
     steps = args.steps,
 )
@@ -85,6 +81,11 @@ println("final mean speed: ", round(mean_speed(final); digits = 3))
 println("final speed-3 share: ", round(mean(car.speed == 3 for car in final.cars); digits = 3))
 println("collision replacements: ", sum(logger.deaths))
 println("final convention strength: ", round(convention(final); digits = 3))
+dangerous = sum(logger.dangerous_proposals)
+accepted = sum(logger.accepted_dangerous_proposals)
+println("final mean risk aversion: ", round(last(logger.mean_risk_aversion); digits = 3),
+        " (std ", round(last(logger.std_risk_aversion); digits = 3), ")")
+println("dangerous-proposal acceptance: ", dangerous == 0 ? "NaN" : round(accepted / dangerous; digits = 3))
 println(
     "final capability shares: ",
     round.(T._capability_counts(final) ./ length(final.cars); digits = 3),
@@ -92,3 +93,4 @@ println(
 println("static-entry dynamics: $(joinpath(OUTPUT_DIR, "capability_dynamics.png"))")
 println("ablation dynamics: $(joinpath(OUTPUT_DIR, "capability_ablation_dynamics.png"))")
 println("evolutionary dynamics: $(joinpath(OUTPUT_DIR, "capability_evolutionary_dynamics.png"))")
+println("diagnostic outputs use current semantics: $OUTPUT_DIR")

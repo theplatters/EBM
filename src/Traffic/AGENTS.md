@@ -25,8 +25,9 @@ The module supports three related but distinct paths:
    include per-entity habitus, mean habitus, naive, two-frame naive, unsure,
    random, switch, decision-aware, and heterogeneous per-car compositions.
 2. `CapabilityModel` is synchronous and multi-speed. Cars make bounded local
-   observations, calculate one LR value, submit lane and speed paths, resolve
-   conflicts, learn from committed outcomes, and replace collided cars.
+   observations, calculate one LR value, submit a binding lane and a risk-adjusted
+   speed proposal, detect collisions synchronously, learn from successful traces,
+   and replace collided cars.
 3. `SequentialModel` updates Agents.jl cars in activation order or with its
    explicit simultaneous treatment. It is a reference model, not another
    `CapabilityModel` policy.
@@ -59,15 +60,30 @@ evolutionary inheritance.
 Maintain the ordered capability tick:
 
 ```text
-store previous positions
-    -> rebuild occupancy and bounded observations
-    -> calculate capability LR and lane proposals
-    -> choose speed/path from current observable motion
-    -> resolve synchronous micro-step conflicts
-    -> decay and deposit successful-driver traces
-    -> replace collided cars
-    -> update acquired state and aggregate logging
+committed positions
+    -> bounded observations
+    -> binding LR/lane decision
+    -> risk-adjusted speed proposal on that lane
+    -> synchronous micro-step collision detection
+    -> successful-driver traces and replacement
+    -> acquired state and logging
 ```
+
+`propose_lanes!` maps the sign of LR (subject to the existing lane-error
+process) to the final `LaneProposal` for the tick. Speed reads that proposal
+but never changes it and does not search for an alternative lane. Each car
+attempts `max_speed` (normally 3), makes exactly one seeded decision draw, and
+accepts danger when `rand(rng) > risk_aversion`. After rejecting danger it
+tests progressively lower speeds on the binding lane. If speeds 1 through
+`max_speed` remain dangerous, speed 1 is the unavoidable-risk fallback; this
+rewrite does not add stopping.
+
+Danger is an exact path conflict with another car's extrapolated committed
+current motion: a shared cell at the same micro-step, a position exchange, or
+a diagonal crossing while changing lane. It never observes private
+`LaneProposal`, `SpeedProposal`, or `MovementPath` values. Simultaneous private
+proposals can therefore conflict and crash; collision detection is symmetric
+and has no winner.
 
 `EntryDrawReplacement` samples new capability combinations from configured
 shares. `EvolutionaryReplacement` selects a surviving parent, inherits stable
@@ -75,12 +91,14 @@ capabilities and traits with mutation, and preserves the replaced car's travel
 direction. Replacement pressure is a model outcome and must not be smoothed or
 clipped inside the simulation.
 
-The historical speed treatment is speed-first: choose the fastest exactly safe
-path and use the LR-selected lane to break equal-speed choices. The optional
-`prefer_lane_over_speed=true` treatment exhausts slower speeds on the selected
-lane before trying the other lane; `speed_clearance` adds experimental graded
-headway. Keep the treatment explicit in reports because it materially changes
-coordination and throughput.
+`RiskAversion` is mandatory in [0, 1]. Initial and `EntryDraw` replacement
+values are Uniform(0, 1); newborns always receive maximum speed. Evolutionary
+replacement selects one uniformly chosen survivor and inherits its risk and
+capabilities from that same parent, mutating traits with Gaussian scale
+`trait_mutation_scale` and clamping to [0, 1] (zero remains exact). Acquired
+states reset. If a collision event wipes out the whole population and no
+survivor parent exists, replacements fall back to independent entry draws; that
+event has no selected-parent risk to inherit.
 
 ## Current Experiment Baseline
 
@@ -97,14 +115,18 @@ Traffic experiment scripts and reports live in the repository-level
 
 - `run_social_habit_experiment.jl` / `social_habit_experiments.md`: pure
   capability scenarios, mixtures, replacement regimes, and sequential contrast.
-- `run_mixture_ensemble_dynamics.jl`: aggregated mixture trajectories with
-  mean ± SD.
+- `run_mixture_ensemble_dynamics.jl`: current uniform-risk static and
+  evolutionary mixture trajectories with ensemble mean ± SD; risk is the same
+  independently entry-drawn, non-heritable Uniform(0,1) as the capability
+  comparison, so capability evolution is isolated from inherited-risk selection.
 - `run_activation_habit_experiment.jl`: activation-order Habit treatment.
-- `run_speed_sensitivity_experiment.jl` / `speed_sensitivity_results.md`:
-  speed-first, lane-first, clearance, and cap-2 treatments.
-- `generate_capability_scenario.jl`,
-  `generate_no_convention_experiments.jl`, and
-  `generate_heterogeneous_strategy.jl`: focused diagnostics.
+- `run_risk_aversion_experiment.jl` / `risk_aversion_results.md`: fixed-risk
+  interventions, uniform entry, and evolutionary inheritance/mutation.
+- `run_uniform_risk_capability_comparison.jl`: current presentation comparison;
+  capability evolution with independently entry-drawn, non-heritable risk.
+- `generate_capability_scenario.jl`, `generate_no_convention_experiments.jl`,
+  and `generate_heterogeneous_strategy.jl`: retained diagnostics; the first
+  two capability outputs are historical after the rewrite.
 
 Generated Traffic media and data belong in `plots/`. Keep `plots/README.md`
 synchronized with generator, horizon, replication count, uncertainty display,

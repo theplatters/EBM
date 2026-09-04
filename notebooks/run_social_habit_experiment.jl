@@ -32,7 +32,12 @@ config = ExperimentConfig(
 )
 
 rows = run_experiment(config)
-output_dir = get(ENV, "TRAFFIC_OUTPUT_DIR", joinpath(@__DIR__, "..", "plots"))
+# Historical diagnostic under current semantics; keep it separate from retained evidence.
+output_dir = get(
+    ENV,
+    "TRAFFIC_OUTPUT_DIR",
+    joinpath(@__DIR__, "..", "plots", "historical_regenerated"),
+)
 csv_path = write_results(joinpath(output_dir, "social_habit_runs.csv"), rows)
 
 conditions = [
@@ -122,8 +127,7 @@ metric_panel!(
 metric_panel!(Axis(figure[2, 2]), :mean_speed, "Mean chosen speed")
 Label(
     figure[0, :],
-    "Habit and convention mechanisms: synchronous capabilities and sequential reference" *
-    (SocialHabitExperiments.PREFER_LANE_OVER_SPEED ? " (lane-first)" : "");
+    "Habit and convention mechanisms: synchronous capabilities and sequential reference";
     fontsize = 21,
     font = :bold,
 )
@@ -203,3 +207,4 @@ save(composition_path, composition_figure; px_per_unit = 2)
 println("wrote run-level data: $csv_path")
 println("wrote visualization: $plot_path")
 println("wrote mixture composition: $composition_path")
+println("diagnostic outputs use current semantics: $output_dir")

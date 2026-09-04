@@ -141,8 +141,9 @@ struct CapabilityReplacementSpec
     direction::Direction
 end
 
-function entry_capability_genome(model::CapabilityModel, draws, rng)
+function entry_capability_genome(model::CapabilityModel, draws, rng, risk)
     return CapabilityGenome(
+        risk,
         rand(rng) < model.same_direction_share ? draws[1] : nothing,
         rand(rng) < model.opposite_direction_share ? draws[2] : nothing,
         rand(rng) < model.avoidance_share ? draws[3] : nothing,
@@ -159,6 +160,9 @@ function entry_capability_genome(model::CapabilityModel, draws, rng)
             nothing,
     )
 end
+
+entry_capability_genome(model::CapabilityModel, draws, rng) =
+    entry_capability_genome(model, draws, rng, rand(rng))
 
 capability_trait_count(model::CapabilityModel) =
     model.social_habit_share > 0.0 ? 5 : 4
@@ -197,6 +201,7 @@ function spawn_capability_car!(world, position, direction, speed, genome, model)
         position,
         PrevPosition(position),
         direction,
+        RiskAversion(genome.risk_aversion),
         Speed(speed),
         SpeedAdjustment(model.max_speed),
         LocalObservation(),
@@ -221,15 +226,14 @@ function spawn_init_entities!(world, model::CapabilityModel)
         rng,
         repeat([Clockwise, Counterclockwise], cld(amount, 2))[1:amount],
     )
-    speeds = rand(rng, 1:model.max_speed, amount)
     draws = rand(rng, Normal(1.0, params.δ), amount, capability_trait_count(model))
     @inbounds for index in 1:amount
         spawn_capability_car!(
             world,
             positions[index],
             directions[index],
-            speeds[index],
-            entry_capability_genome(model, view(draws, index, :), rng),
+            model.max_speed,
+            entry_capability_genome(model, view(draws, index, :), rng, rand(rng)),
             model,
         )
     end
@@ -249,6 +253,7 @@ function capability_genome(world, entity)
     convention = optional_component(world, entity, ConventionPerception)
     social_habit = optional_component(world, entity, SocialHabitFormation)
     return CapabilityGenome(
+        Ark.get_components(world, entity, (RiskAversion,))[1].value,
         isnothing(same) ? nothing : same.sensitivity,
         isnothing(opposite) ? nothing : opposite.sensitivity,
         isnothing(avoidance) ? nothing : avoidance.sensitivity,
@@ -313,6 +318,7 @@ function inherit_capability_genome(
         policy::EvolutionaryReplacement, rng,
     )
     return CapabilityGenome(
+        clamp(parent.risk_aversion + policy.trait_mutation_scale * randn(rng), 0.0, 1.0),
         mutate_optional_trait(
             parent.same_direction, draws[1], model.same_direction_share > 0.0, policy, rng,
         ),
@@ -334,16 +340,19 @@ function inherit_capability_genome(
 end
 
 function replacement_genome(
-        ::EntryDrawReplacement, parent_genomes, model, draws, rng,
+        ::EntryDrawReplacement, parent_genomes, model, draws, rng;
+        selected_parent_risks = nothing,
     )
-    return entry_capability_genome(model, draws, rng)
+    return entry_capability_genome(model, draws, rng, rand(rng))
 end
 
 function replacement_genome(
-        policy::EvolutionaryReplacement, parent_genomes, model, draws, rng,
+        policy::EvolutionaryReplacement, parent_genomes, model, draws, rng;
+        selected_parent_risks = nothing,
     )
     isempty(parent_genomes) && return entry_capability_genome(model, draws, rng)
     parent = rand(rng, parent_genomes)
+    selected_parent_risks !== nothing && push!(selected_parent_risks, parent.risk_aversion)
     return inherit_capability_genome(parent, model, draws, policy, rng)
 end
 
@@ -357,14 +366,19 @@ function spawn_new_entities!(
     params = Ark.get_resource(world, ModelParams)
     ring = Ark.get_resource(world, Ring)
     model = Ark.get_resource(world, CapabilityModel)
+    diagnostics = Ark.get_resource(world, CapabilityTickDiagnostics)
     occupied_positions = Set{Position}()
-    parent_genomes = CapabilityGenome[]
+    survivor_data = Tuple{Ark.Entity,Position,CapabilityGenome}[]
     for (entities, positions) in Query(world, (Position,))
         @inbounds for index in eachindex(entities)
             push!(occupied_positions, positions[index])
-            push!(parent_genomes, capability_genome(world, entities[index]))
+            push!(survivor_data, (
+                entities[index], positions[index], capability_genome(world, entities[index]),
+            ))
         end
     end
+    sort!(survivor_data; by = survivor -> entity_order(survivor[1]))
+    parent_genomes = [survivor[3] for survivor in survivor_data]
     unoccupied_positions = Position[
         Position(x, y)
             for y in 1:ring.height for x in 1:ring.width
@@ -376,19 +390,19 @@ function spawn_new_entities!(
     for index in 1:amount
         position_index = rand(rng, eachindex(unoccupied_positions))
         position = unoccupied_positions[position_index]
-        speed = rand(rng, 1:model.max_speed)
         genome = replacement_genome(
             model.replacement_policy,
             parent_genomes,
             model,
             view(draws, index, :),
             rng,
+            selected_parent_risks = diagnostics.selected_parent_risks,
         )
         spawn_capability_car!(
             world,
             position,
             shuffled_replacements[index].direction,
-            speed,
+            model.max_speed,
             genome,
             model,
         )

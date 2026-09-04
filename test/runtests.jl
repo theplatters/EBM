@@ -4,6 +4,11 @@ using Random
 using StatsBase
 using Test
 
+if !isdefined(Main, :SocialHabitExperiments)
+    include(joinpath(@__DIR__, "..", "notebooks", "social_habit_common.jl"))
+end
+using .SocialHabitExperiments
+
 snapshot_signature(snapshot) = [
     (
         car.lane, car.cell, Int(car.direction), car.age, car.habitus, car.decision,
@@ -15,7 +20,8 @@ snapshot_signature(snapshot) = [
 capability_signature(snapshot) = [
     (
         car.lane, car.cell, Int(car.direction), car.age, car.habitus,
-        car.social_habitus, car.decision, car.speed, car.capabilities,
+        car.social_habitus, car.decision, car.speed, car.risk_aversion,
+        car.capabilities,
     )
         for car in snapshot.cars
 ]
@@ -314,79 +320,182 @@ end
             steps = 0,
         ),
     )
-    @test_throws ArgumentError Traffic.setup_world(
-        Traffic.ModelArgs(
-            params = params,
-            prediction_strategy = Traffic.CapabilityModel(speed_clearance = -0.1),
-            steps = 0,
-        ),
-    )
+    @test_throws ArgumentError Traffic.RiskAversion(-0.01)
+    @test_throws ArgumentError Traffic.RiskAversion(1.01)
+end
 
-    adjacent_path = (
-        Traffic.Position(1, 2), Traffic.Position(1, 3), Traffic.Position(1, 4),
-    )
-    following_path = (
-        Traffic.Position(1, 3), Traffic.Position(1, 4), Traffic.Position(1, 5),
-    )
-    @test !Traffic.clearance_violated(adjacent_path, following_path, 0, 30)
-    @test Traffic.clearance_violated(adjacent_path, following_path, 1, 30)
-
-    function speed_priority_world(prefer_lane)
-        priority_model = Traffic.CapabilityModel(
-            max_speed = 3,
-            prefer_lane_over_speed = prefer_lane,
-        )
-        priority_world = Traffic.setup_world(
-            Traffic.ModelArgs(
-                seed = 30,
-                params = Traffic.ModelParams(
-                    init_agents = 2,
-                    ring_y = 20,
-                    lookahead = 5,
-                ),
-                prediction_strategy = priority_model,
-                steps = 0,
-            ),
-        )
-        subject = first(Traffic.traffic_snapshot(priority_world).cars).entity
-        for (entities, positions, directions, speeds, controls, lanes) in
-                Traffic.Query(
-            priority_world,
-            (
-                Traffic.Position,
-                Traffic.Direction,
-                Traffic.Speed,
-                Traffic.SpeedAdjustment,
-                Traffic.LaneProposal,
-            ),
-        )
-            for index in eachindex(entities)
-                if entities[index] == subject
-                    positions[index] = Traffic.Position(1, 1)
-                    directions[index] = Traffic.Clockwise
-                    speeds[index] = Traffic.Speed(3)
-                    controls[index] = Traffic.SpeedAdjustment(3)
-                    lanes[index] = Traffic.LaneProposal(1)
-                else
-                    positions[index] = Traffic.Position(1, 5)
-                    directions[index] = Traffic.Counterclockwise
-                    speeds[index] = Traffic.Speed(1)
-                    controls[index] = Traffic.SpeedAdjustment(3)
-                    lanes[index] = Traffic.LaneProposal(1)
+@testset "Capability risk and speed decisions" begin
+    function speed_fixture(risk; dangerous = true, cars = 2)
+        model = Traffic.CapabilityModel(max_speed = 3)
+        world = Traffic.setup_world(Traffic.ModelArgs(
+            seed = 31415,
+            params = Traffic.ModelParams(init_agents = cars, ring_y = 20, lookahead = 5),
+            prediction_strategy = model, steps = 0,
+        ))
+        subject = first(Traffic.traffic_snapshot(world).cars).entity
+        for (es, positions, directions, speeds, controls, risks, lanes) in Traffic.Query(
+                world, (Traffic.Position, Traffic.Direction, Traffic.Speed,
+                        Traffic.SpeedAdjustment, Traffic.RiskAversion, Traffic.LaneProposal))
+            for i in eachindex(es)
+                if es[i] == subject
+                    positions[i] = Traffic.Position(1, 1)
+                    directions[i] = Traffic.Clockwise
+                    speeds[i] = Traffic.Speed(3)
+                    controls[i] = Traffic.SpeedAdjustment(3)
+                    risks[i] = Traffic.RiskAversion(risk)
+                    lanes[i] = Traffic.LaneProposal(1)
+                elseif dangerous
+                    positions[i] = Traffic.Position(1, 5)
+                    directions[i] = Traffic.Counterclockwise
+                    speeds[i] = Traffic.Speed(1)
+                    controls[i] = Traffic.SpeedAdjustment(3)
+                    lanes[i] = Traffic.LaneProposal(2)
                 end
             end
         end
-        Traffic.propose_speeds!(priority_world)
-        lane, speed = Traffic.Ark.get_components(
-            priority_world,
-            subject,
-            (Traffic.LaneProposal, Traffic.SpeedProposal),
-        )
-        return lane.lane, speed.value
+        return world, subject
     end
 
-    @test speed_priority_world(false) == (2, 3)
-    @test speed_priority_world(true) == (1, 2)
+    world, subject = speed_fixture(1.0)
+    ring = Traffic.Ark.get_resource(world, Traffic.Ring)
+    subject_position, subject_direction = Traffic.Ark.get_components(
+        world, subject, (Traffic.Position, Traffic.Direction),
+    )
+    motions = Traffic.observed_motions(world)
+    # Speed 3 is dangerous on the binding lane 1 but would be clear on lane 2.
+    @test !Traffic.observed_action_is_safe(
+        subject, subject_position, subject_direction, 1, 3, motions, ring,
+    )
+    @test Traffic.observed_action_is_safe(
+        subject, subject_position, subject_direction, 2, 3, motions, ring,
+    )
+    before_lane = Traffic.Ark.get_components(world, subject, (Traffic.LaneProposal,))[1].lane
+    Traffic.propose_speeds!(world)
+    lane, speed, path = Traffic.Ark.get_components(
+        world, subject, (Traffic.LaneProposal, Traffic.SpeedProposal, Traffic.MovementPath),
+    )
+    @test before_lane == lane.lane == 1
+    @test speed.value == 2  # fastest safe lower speed, not the unavoidable fallback
+    @test all(position.x == 1 for position in path.positions)
+    @test Traffic.Ark.get_resource(world, Traffic.CapabilityTickDiagnostics).dangerous_proposals == 1
+    @test Traffic.Ark.get_resource(world, Traffic.CapabilityTickDiagnostics).accepted_dangerous_proposals == 0
+
+    clear_world, clear_subject = speed_fixture(1.0; dangerous = false, cars = 1)
+    Traffic.propose_speeds!(clear_world)
+    @test Traffic.Ark.get_components(clear_world, clear_subject, (Traffic.SpeedProposal,))[1].value == 3
+    @test Traffic.Ark.get_resource(clear_world, Traffic.CapabilityTickDiagnostics).dangerous_proposals == 0
+
+    accepting_world, accepting_subject = speed_fixture(0.0)
+    Traffic.propose_speeds!(accepting_world)
+    @test Traffic.Ark.get_components(accepting_world, accepting_subject, (Traffic.SpeedProposal,))[1].value == 3
+    accepting_diagnostics = Traffic.Ark.get_resource(accepting_world, Traffic.CapabilityTickDiagnostics)
+    @test accepting_diagnostics.dangerous_proposals == 1
+    @test accepting_diagnostics.accepted_dangerous_proposals == 1
+
+    @test all(
+        0.0 <= car.risk_aversion <= 1.0
+            for car in Traffic.traffic_snapshot(
+                Traffic.setup_world(Traffic.ModelArgs(
+                    seed = 12,
+                    params = Traffic.ModelParams(init_agents = 20, ring_y = 40),
+                    prediction_strategy = Traffic.CapabilityModel(), steps = 0,
+                )
+            )).cars
+    )
+    initial_world = Traffic.setup_world(Traffic.ModelArgs(
+        seed = 12,
+        params = Traffic.ModelParams(init_agents = 20, ring_y = 40),
+        prediction_strategy = Traffic.CapabilityModel(), steps = 0,
+    ))
+    initial_cars = Traffic.traffic_snapshot(initial_world).cars
+    @test length(unique(car.risk_aversion for car in initial_cars)) > 1
+    @test all(car.speed == 3 for car in initial_cars)
+    @test all(Traffic.Ark.has_components(initial_world, car.entity, (Traffic.RiskAversion,))
+              for car in initial_cars)
+    repeat_initial = Traffic.traffic_snapshot(Traffic.setup_world(Traffic.ModelArgs(
+        seed = 12,
+        params = Traffic.ModelParams(init_agents = 20, ring_y = 40),
+        prediction_strategy = Traffic.CapabilityModel(), steps = 0,
+    )))
+    @test [car.risk_aversion for car in initial_cars] ==
+          [car.risk_aversion for car in repeat_initial.cars]
+
+    # The speed decision has exactly one stochastic draw per decision entity.
+    draw_world, _ = speed_fixture(1.0)
+    expected = deepcopy(Traffic.Ark.get_resource(draw_world, Traffic.SimulationRNG).rng)
+    n = length(Traffic.traffic_snapshot(draw_world).cars)
+    rand(expected, n)
+    Traffic.propose_speeds!(draw_world)
+    @test rand(expected) == rand(Traffic.Ark.get_resource(
+        draw_world, Traffic.SimulationRNG).rng)
+
+    # Private proposals of an observed car cannot affect the subject.
+    private_a, private_subject = speed_fixture(1.0)
+    private_b = deepcopy(private_a)
+    other = only(filter(car -> car.entity != private_subject,
+                        Traffic.traffic_snapshot(private_b).cars)).entity
+    for (es, lanes, speeds, paths) in Traffic.Query(
+            private_b, (Traffic.LaneProposal, Traffic.SpeedProposal, Traffic.MovementPath))
+        for i in eachindex(es)
+            es[i] == other || continue
+            lanes[i] = Traffic.LaneProposal(2)
+            speeds[i] = Traffic.SpeedProposal(1)
+            paths[i] = Traffic.MovementPath(Traffic.Position(2, 19))
+        end
+    end
+    Traffic.propose_speeds!(private_a)
+    Traffic.propose_speeds!(private_b)
+    @test Traffic.Ark.get_components(private_a, private_subject, (Traffic.SpeedProposal,))[1] ==
+          Traffic.Ark.get_components(private_b, private_subject, (Traffic.SpeedProposal,))[1]
+
+    # Resolution is symmetric: conflicting submitted paths have no winner.
+    collision_world, _ = speed_fixture(1.0)
+    collision_entities = [car.entity for car in Traffic.traffic_snapshot(collision_world).cars]
+    for (es, positions, paths) in Traffic.Query(collision_world, (Traffic.Position, Traffic.MovementPath))
+        for i in eachindex(es)
+            positions[i] = Traffic.Position(es[i] == collision_entities[1] ? 1 : 2, 1)
+            paths[i] = Traffic.MovementPath(Traffic.Position(1, 2))
+        end
+    end
+    replacements = Traffic.resolve_capability_movement!(collision_world)
+    @test length(replacements) == 2
+    @test isempty(Traffic.traffic_snapshot(collision_world).cars)
+
+    # A position exchange is a collision at the resolver level, with no winner.
+    exchange_world, _ = speed_fixture(1.0)
+    exchange_entities = [car.entity for car in Traffic.traffic_snapshot(exchange_world).cars]
+    for (es, positions, paths) in Traffic.Query(
+            exchange_world, (Traffic.Position, Traffic.MovementPath))
+        for i in eachindex(es)
+            if es[i] == exchange_entities[1]
+                positions[i] = Traffic.Position(1, 1)
+                paths[i] = Traffic.MovementPath(Traffic.Position(1, 2))
+            else
+                positions[i] = Traffic.Position(1, 2)
+                paths[i] = Traffic.MovementPath(Traffic.Position(1, 1))
+            end
+        end
+    end
+    @test Traffic.edges_cross(
+        Traffic.Position(1, 1), Traffic.Position(1, 2),
+        Traffic.Position(1, 2), Traffic.Position(1, 1),
+    )
+    exchange_replacements = Traffic.resolve_capability_movement!(exchange_world)
+    @test length(exchange_replacements) == 2
+    @test isempty(Traffic.traffic_snapshot(exchange_world).cars)
+
+    @test Traffic.paths_conflict(Traffic.Position(1, 1),
+        (Traffic.Position(1, 2), Traffic.Position(1, 2), Traffic.Position(1, 2)),
+        Traffic.Position(2, 1),
+        (Traffic.Position(1, 2), Traffic.Position(1, 3), Traffic.Position(1, 3)))
+    @test Traffic.paths_conflict(Traffic.Position(1, 1),
+        (Traffic.Position(1, 2), Traffic.Position(1, 3), Traffic.Position(1, 3)),
+        Traffic.Position(1, 2),
+        (Traffic.Position(1, 1), Traffic.Position(1, 1), Traffic.Position(1, 1)))
+    @test Traffic.paths_conflict(Traffic.Position(1, 1),
+        (Traffic.Position(2, 2), Traffic.Position(2, 2), Traffic.Position(2, 2)),
+        Traffic.Position(2, 1),
+        (Traffic.Position(1, 2), Traffic.Position(1, 2), Traffic.Position(1, 2)))
 end
 
 @testset "Habit, convention, and social-habit semantics" begin
@@ -608,11 +717,13 @@ end
 
 @testset "Evolutionary capability replacement" begin
     parent = Traffic.CapabilityGenome(
+        0.35,
         0.8,
         nothing,
         1.2,
         nothing,
         Traffic.ConventionPerception(0.2, 0.05),
+        nothing,
     )
     model = Traffic.CapabilityModel(
         replacement_policy = Traffic.EvolutionaryReplacement(
@@ -630,6 +741,7 @@ end
     @test inherited == parent
 
     social_parent = Traffic.CapabilityGenome(
+        0.65,
         nothing,
         nothing,
         nothing,
@@ -678,7 +790,7 @@ end
         replacement_policy = flip_policy,
     )
     disabled_parent = Traffic.CapabilityGenome(
-        nothing, nothing, nothing, nothing, nothing,
+        0.5, nothing, nothing, nothing, nothing, nothing, nothing,
     )
     disabled_mutation = Traffic.inherit_capability_genome(
         disabled_parent,
@@ -715,6 +827,190 @@ end
     @test all(snapshot.treatment == :evolutionary for snapshot in first_run)
     @test length(last(first_run).cars) == args.params.init_agents
     @test last(first_run).cumulative_replacements > 0
+end
+
+@testset "Capability replacement and diagnostics" begin
+    entry_model = Traffic.CapabilityModel()
+    entry_world = Traffic.setup_world(Traffic.ModelArgs(
+        seed = 808,
+        params = Traffic.ModelParams(init_agents = 1, ring_y = 20),
+        prediction_strategy = entry_model, steps = 0,
+    ))
+    survivor = only(Traffic.traffic_snapshot(entry_world).cars).entity
+    for (_, risks) in Traffic.Query(entry_world, (Traffic.RiskAversion,))
+        risks[1] = Traffic.RiskAversion(0.123456)
+    end
+    Traffic.spawn_new_entities!(entry_world, [Traffic.CapabilityReplacementSpec(Traffic.Clockwise)])
+    children = filter(car -> car.entity != survivor, Traffic.traffic_snapshot(entry_world).cars)
+    @test length(children) == 1
+    child = only(children)
+    @test child.age == 1
+    @test child.speed == entry_model.max_speed
+    @test 0.0 <= child.risk_aversion <= 1.0
+    @test child.risk_aversion != 0.123456
+
+    parent = Traffic.CapabilityGenome(
+        0.271828, 0.8, nothing, 1.2, nothing,
+        Traffic.ConventionPerception(0.2, 0.05), nothing,
+    )
+    evolutionary = Traffic.CapabilityModel(
+        replacement_policy = Traffic.EvolutionaryReplacement(
+            capability_mutation_rate = 0.0, trait_mutation_scale = 0.0,
+        ),
+    )
+    @test Traffic.inherit_capability_genome(
+        parent, evolutionary, ones(5), evolutionary.replacement_policy, Random.Xoshiro(1),
+    ) == parent
+
+    # With one survivor the integrated replacement has an unambiguous parent.
+    evo_world = Traffic.setup_world(Traffic.ModelArgs(
+        seed = 909,
+        params = Traffic.ModelParams(init_agents = 2, ring_y = 20),
+        prediction_strategy = evolutionary, steps = 0,
+    ))
+    parent_entity = first(Traffic.traffic_snapshot(evo_world).cars).entity
+    parent_genome = Traffic.capability_genome(evo_world, parent_entity)
+    doomed = last(Traffic.traffic_snapshot(evo_world).cars).entity
+    Traffic.Ark.remove_entity!(evo_world, doomed)
+    Traffic.spawn_new_entities!(evo_world,
+        [Traffic.CapabilityReplacementSpec(Traffic.Counterclockwise)])
+    newborn = first(filter(car -> car.entity != parent_entity,
+                           Traffic.traffic_snapshot(evo_world).cars))
+    @test Traffic.capability_genome(evo_world, newborn.entity) == parent_genome
+    @test newborn.age == 1
+    @test newborn.habitus == 0.0
+
+    for (risk, seed) in ((0.0, 111), (1.0, 112))
+        extreme = Traffic.CapabilityGenome(
+            risk, nothing, nothing, nothing, nothing, nothing, nothing,
+        )
+        mutated = Traffic.inherit_capability_genome(
+            extreme, evolutionary,
+            ones(5), Traffic.EvolutionaryReplacement(
+                capability_mutation_rate = 0.0, trait_mutation_scale = 1.0e6,
+            ), Random.Xoshiro(seed),
+        )
+        @test 0.0 <= mutated.risk_aversion <= 1.0
+    end
+
+    diagnostic_model = Traffic.CapabilityModel(
+        replacement_policy = Traffic.EvolutionaryReplacement(
+            capability_mutation_rate = 0.1, trait_mutation_scale = 0.1,
+        ),
+    )
+    diagnostic_args = Traffic.ModelArgs(
+        seed = 1234,
+        params = Traffic.ModelParams(init_agents = 12, ring_y = 30),
+        prediction_strategy = diagnostic_model, steps = 5,
+    )
+    diagnostic_world = Traffic.setup_world(diagnostic_args)
+    for _ in 1:diagnostic_args.steps
+        Traffic.step!(diagnostic_world, diagnostic_model)
+    end
+    logger = Traffic.Ark.get_resource(diagnostic_world, Traffic.Logger)
+    fields = (logger.mean_risk_aversion, logger.std_risk_aversion,
+              logger.distribution_risk_aversion, logger.survivor_risk,
+              logger.selected_parent_risk, logger.dangerous_proposals,
+              logger.accepted_dangerous_proposals, logger.mean_proposed_speed,
+              logger.mean_realized_speed, logger.replacement_pressure)
+    @test all(length(field) == diagnostic_args.steps for field in fields)
+    @test all(isfinite, logger.mean_risk_aversion)
+    @test all(0.0 .<= logger.mean_risk_aversion .<= 1.0)
+    @test all(0.0 .<= logger.replacement_pressure .<= 1.0)
+    @test all(0 .<= logger.accepted_dangerous_proposals .<= logger.dangerous_proposals)
+    @test all(1.0 .<= logger.mean_proposed_speed .<= 3.0)
+    @test all(1.0 .<= logger.mean_realized_speed .<= 3.0)
+end
+
+@testset "Non-heritable newborn risk hook" begin
+    function risk_hook_fixture()
+        model = Traffic.CapabilityModel(
+            replacement_policy = Traffic.EvolutionaryReplacement(
+                capability_mutation_rate = 0.0, trait_mutation_scale = 0.0,
+            ),
+        )
+        world = Traffic.setup_world(Traffic.ModelArgs(
+            seed = 4242,
+            params = Traffic.ModelParams(init_agents = 1, ring_y = 20),
+            prediction_strategy = model, steps = 0,
+        ))
+        survivor = only(Traffic.traffic_snapshot(world).cars).entity
+        for (_, risks) in Traffic.Query(world, (Traffic.RiskAversion,))
+            risks[1] = Traffic.RiskAversion(0.123456)
+        end
+        before = Set(survivor for (entities, _) in Traffic.Query(world, (Traffic.Position,))
+                     for survivor in entities)
+        Traffic.spawn_new_entities!(world, [
+            Traffic.CapabilityReplacementSpec(Traffic.Clockwise),
+            Traffic.CapabilityReplacementSpec(Traffic.Counterclockwise),
+        ])
+        return world, before, survivor
+    end
+
+    world, before, survivor = risk_hook_fixture()
+    expected_rng = deepcopy(Traffic.simulation_rng(world))
+    expected = rand(expected_rng, 2)
+    count = uniform_newborn_risk!(world, before, 1)
+    cars = sort!(collect(Traffic.traffic_snapshot(world).cars);
+                 by = car -> (getfield(car.entity, :_id), getfield(car.entity, :_gen)))
+    newborns = filter(car -> car.entity ∉ before, cars)
+    @test count == 2
+    @test length(newborns) == 2
+    @test [car.risk_aversion for car in newborns] == expected
+    @test only(filter(car -> car.entity == survivor, cars)).risk_aversion == 0.123456
+    @test all(0.0 <= car.risk_aversion <= 1.0 for car in newborns)
+
+    current_entities = Set(car.entity for car in cars)
+    expected_rng = deepcopy(Traffic.simulation_rng(world))
+    @test uniform_newborn_risk!(world, current_entities, 2) == 0
+    @test rand(Traffic.simulation_rng(world)) == rand(expected_rng)
+
+    repeated_world, repeated_before, _ = risk_hook_fixture()
+    @test uniform_newborn_risk!(repeated_world, repeated_before, 1) == 2
+    repeated_cars = sort!(collect(Traffic.traffic_snapshot(repeated_world).cars);
+                          by = car -> (getfield(car.entity, :_id), getfield(car.entity, :_gen)))
+    @test [car.risk_aversion for car in newborns] ==
+          [car.risk_aversion for car in filter(car -> car.entity ∉ repeated_before, repeated_cars)]
+end
+
+@testset "Evolutionary replacement with no survivors" begin
+    model = Traffic.CapabilityModel(
+        replacement_policy = Traffic.EvolutionaryReplacement(
+            capability_mutation_rate = 0.0,
+            trait_mutation_scale = 0.0,
+        ),
+    )
+    args = Traffic.ModelArgs(
+        seed = 555,
+        params = Traffic.ModelParams(init_agents = 6, ring_y = 20),
+        prediction_strategy = model,
+        steps = 0,
+    )
+    world = Traffic.setup_world(args)
+
+    # Remove every car so no surviving parent genome exists.
+    for entity in [car.entity for car in Traffic.traffic_snapshot(world).cars]
+        Traffic.Ark.remove_entity!(world, entity)
+    end
+    @test isempty(Traffic.traffic_snapshot(world).cars)
+
+    amount = 8
+    directions = repeat(
+        [Traffic.Clockwise, Traffic.Counterclockwise], cld(amount, 2),
+    )[1:amount]
+    specs = [Traffic.CapabilityReplacementSpec(dir) for dir in directions]
+
+    Traffic.spawn_new_entities!(world, specs)
+
+    snapshot = Traffic.traffic_snapshot(world)
+    @test length(snapshot.cars) == amount  # population restored
+    @test all(0.0 <= car.risk_aversion <= 1.0 for car in snapshot.cars)
+    # Multiple independent entry draws should differ.
+    @test length(unique(car.risk_aversion for car in snapshot.cars)) > 1
+    @test all(car.speed == model.max_speed for car in snapshot.cars)
+    @test isempty(
+        Traffic.Ark.get_resource(world, Traffic.CapabilityTickDiagnostics).selected_parent_risks,
+    )
 end
 
 @testset "Capability composition and replacement" begin

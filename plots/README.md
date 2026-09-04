@@ -1,7 +1,7 @@
 # Plot artifact audit
 
-Audited on 2026-08-02 after separating Habit, Convention, and SocialHabit and
-setting the current traffic experiment horizon to 5,000 ticks.
+Audited on 2026-09-04 after the CapabilityModel rewrite and its 30-seed risk
+aversion experiment.
 
 This directory contains generated Traffic artifacts only. AssetMarket,
 ElFasol, and Sugarscape keep their outputs in their model directories. PNG and
@@ -9,31 +9,47 @@ MP4 files are presentation artifacts; CSV files are the run-level or sampled
 data used to reproduce the corresponding comparisons. Do not edit generated
 data manually.
 
-## Current 5,000-tick outputs
+## Current 5,000-tick capability outputs
 
 | Artifact group | Generator | Replication and uncertainty |
 |---|---|---|
-| `social_habit_*` | `notebooks/run_social_habit_experiment.jl`, `run_mixture_ensemble_dynamics.jl`, `animate_social_habit_mixture.jl` | 30 paired seeds; replicate points/95% mean intervals and ensemble mean ± SD |
+| `risk_aversion_runs.csv`, `risk_aversion_distributions.csv`, `risk_aversion_comparison.png`, `risk_aversion_distribution.png` | `notebooks/run_risk_aversion_experiment.jl` | 30 paired seeds; 150 runs and 36,000 distribution rows; means ± between-run SD |
+| `uniform_risk_capability_runs.csv`, `uniform_risk_capability_comparison.png`, `uniform_risk_capability_composition.png` | `notebooks/run_uniform_risk_capability_comparison.jl` | 30 paired seeds; 8 conditions (5 static-entry capability + 1 mixed evolutionary + 2 sequential reference); replicate points and 95% mean intervals |
 | `activation_habit_*` | `notebooks/run_activation_habit_experiment.jl`, `verify_activation_habit_results.jl` | 30 paired seeds; bootstrap intervals |
-| `capability_*_dynamics.png` | `notebooks/generate_capability_scenario.jl` | single-seed mechanism diagnostics |
-| `no_convention_*` | `notebooks/generate_no_convention_experiments.jl` | five paired seeds; mean ± SD plus single-seed histories |
 | `heterogeneous_strategy/*` | `notebooks/generate_heterogeneous_strategy.jl` | 30 paired seeds; mean ± SD |
-| `speed_sensitivity_*` | `notebooks/run_speed_sensitivity_experiment.jl` | 30 paired seeds × static/evolutionary replacement; replicate points and mean ± SD |
+| `uniform_risk_mixture_dynamics.csv`, `uniform_risk_mixture_ensemble_dynamics.png` | `notebooks/run_mixture_ensemble_dynamics.jl` | 30 paired seeds; 201 samples per condition (12,060 rows = 30 seeds × 2 scenarios × 201 sampled steps); ensemble mean ± 1 SD |
 | `examples/*` | `notebooks/generate_traffic_examples.jl` | 5,000-tick seed-42 illustrations |
-| `lane_first/*` | same generators as above, run with `TRAFFIC_PREFER_LANE=true` and `TRAFFIC_OUTPUT_DIR=plots/lane_first` | identical designs and replication as their speed-first counterparts |
 
-Current capability experiments use lookahead 20. Analytical histories sample
-every 25 ticks; `social_habit_mixture_dynamics.csv` has the corresponding
-run-level ensemble data.
+The uniform-risk capability comparison fixes every car's risk aversion as an
+independent, non-heritable Uniform(0,1) draw: five synchronous treatments use
+static `EntryDrawReplacement` (capabilities redrawn from entry shares, no
+evolution), one synchronous treatment uses `EvolutionaryReplacement` (capabilities
+and quantitative traits inherit and mutate, but the temporarily inherited risk is
+overwritten by a fresh entry draw), and the two sequential references carry no
+`RiskAversion` component. The evolutionary treatment uses capability mutation
+rate 0.02 and quantitative-trait mutation scale 0.05.
 
-The lane-first group is the complete lane-first counterpart of the published
-speed-first capability artifacts: the same generators, seeds, horizons, and
-paired-seed designs, with `prefer_lane_over_speed = true` on every
-`CapabilityModel`. The activation-habit, heterogeneous-strategy, occupancy
-strategy, and sweep groups have no lane-first variant because they do not use
-the capability model's lane/speed action search. The sequential reference rows
-inside `lane_first/social_habit_runs.csv` are unchanged relative to the
-speed-first run for identical seeds.
+Current capability experiments use lookahead 20. The `run_mixture_ensemble_dynamics.jl`
+generator is now current: it samples the uniform-risk static and evolutionary
+mixtures described above — still independently entry-drawn, non-heritable
+Uniform(0,1) risk with no risk evolution — across 30 paired seeds and reports
+ensemble mean ± 1 SD trajectories (the dashed line marks the 1,000-tick burn-in).
+The social-habit, animation, and `generate_capability_scenario`/`generate_no_convention`
+scripts remain historical/diagnostic generators, not sources for the current
+retained evidence.
+
+## Historical retained artifacts
+
+`speed_sensitivity_*`, `lane_first/*`, old `social_habit_*`, old
+`capability_*`, and `no_convention_*` are retained historical results from the
+removed speed-first/lane-first semantics. They must not be presented as
+current evidence or regenerated as current studies. The old speed generator
+is removed and its report is no longer reproducible against the current model.
+
+Historical regeneration is permitted only into `plots/historical_regenerated`
+(the default for the historical generators, overridable via `TRAFFIC_OUTPUT_DIR`)
+and remains a current-semantics diagnostic, never a replacement for the
+retained historical evidence above.
 
 The main ensemble scripts accept `TRAFFIC_REPLICATES`, `TRAFFIC_STEPS`,
 `TRAFFIC_BURN_IN`, `TRAFFIC_LOOKAHEAD`, and `TRAFFIC_OUTPUT_DIR`. Development
