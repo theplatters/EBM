@@ -122,7 +122,8 @@ metric_panel!(
 metric_panel!(Axis(figure[2, 2]), :mean_speed, "Mean chosen speed")
 Label(
     figure[0, :],
-    "Habit and convention mechanisms: synchronous capabilities and sequential reference";
+    "Habit and convention mechanisms: synchronous capabilities and sequential reference" *
+    (SocialHabitExperiments.PREFER_LANE_OVER_SPEED ? " (lane-first)" : "");
     fontsize = 21,
     font = :bold,
 )

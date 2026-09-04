@@ -4,10 +4,17 @@ using Statistics
 
 const T = EBM.Traffic
 
+"""Set `TRAFFIC_PREFER_LANE=true` to run all scenarios lane-first."""
+const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
+const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", "plots")
+
 args = T.ModelArgs(
     seed = 20260730,
     params = T.ModelParams(lookahead = 20),
-    prediction_strategy = T.CapabilityModel(social_habit_share = 0.5),
+    prediction_strategy = T.CapabilityModel(
+        social_habit_share = 0.5,
+        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
+    ),
     steps = 5_000,
 )
 
@@ -32,9 +39,9 @@ convention(snapshot) = abs(mean(
     T.relative_lane_sign(car.lane, car.direction) for car in snapshot.cars
 ))
 
-mkpath("plots")
+mkpath(OUTPUT_DIR)
 save(
-    "plots/capability_dynamics.png",
+    joinpath(OUTPUT_DIR, "capability_dynamics.png"),
     T.plot_traffic_history(history),
 )
 
@@ -42,6 +49,7 @@ evolutionary_args = T.ModelArgs(
     seed = args.seed,
     params = args.params,
     prediction_strategy = T.CapabilityModel(
+        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
         replacement_policy = T.EvolutionaryReplacement(
             capability_mutation_rate = 0.02,
             trait_mutation_scale = 0.05,
@@ -51,7 +59,7 @@ evolutionary_args = T.ModelArgs(
 )
 _, evolutionary_history = run_history(evolutionary_args)
 save(
-    "plots/capability_evolutionary_dynamics.png",
+    joinpath(OUTPUT_DIR, "capability_evolutionary_dynamics.png"),
     T.plot_traffic_history(evolutionary_history),
 )
 
@@ -62,12 +70,13 @@ ablation_args = T.ModelArgs(
         habit_share = 0.0,
         convention_share = 0.0,
         social_habit_share = 0.0,
+        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     ),
     steps = args.steps,
 )
 _, ablation_history = run_history(ablation_args)
 save(
-    "plots/capability_ablation_dynamics.png",
+    joinpath(OUTPUT_DIR, "capability_ablation_dynamics.png"),
     T.plot_traffic_history(ablation_history),
 )
 
@@ -80,6 +89,6 @@ println(
     "final capability shares: ",
     round.(T._capability_counts(final) ./ length(final.cars); digits = 3),
 )
-println("static-entry dynamics: plots/capability_dynamics.png")
-println("ablation dynamics: plots/capability_ablation_dynamics.png")
-println("evolutionary dynamics: plots/capability_evolutionary_dynamics.png")
+println("static-entry dynamics: $(joinpath(OUTPUT_DIR, "capability_dynamics.png"))")
+println("ablation dynamics: $(joinpath(OUTPUT_DIR, "capability_ablation_dynamics.png"))")
+println("evolutionary dynamics: $(joinpath(OUTPUT_DIR, "capability_evolutionary_dynamics.png"))")

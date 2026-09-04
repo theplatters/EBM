@@ -70,16 +70,11 @@
 
 == The real world
 
-#speaker-note[
-  + Ask what information an activation order gives later drivers within the same tick.
-  + Emphasize that update timing is a modeling choice shaped, but not determined, by architecture.
-  + The timing slide defends joint resolution as a behavioral claim about observability, not a clock claim.
-]
-- Drivers on a roundabout decide on the basis of locally observable cues: available gaps, speeds, brake lights, and lateral positions.
-- Decisions are taken continuously and concurrently, without a global clock or fixed turn order @hubermanEvolutionaryGamesComputer1993.
-- The intentions of other drivers remain unobserved until expressed as visible motion. #pause
-- Defensible rule: all proposals from one observable state, then resolve jointly — `p_i = G_i(W) -> W' = "resolve"(W, {p_i})`.
-- A decision system reads phase-entry state and writes a proposal; resolution reads all proposals. The sequential `agent_step!` loop breaks this by letting later readers see earlier writers in the same transition.
+- Real-world agents, especially drivers, often act in parallel.
+- So why was the original model implemented sequentially?
+  - Sequential updating is simple.
+  - It is the most natural update scheme in many traditional ABM frameworks.
+  - But this also reflects the underlying software architecture.
 = ABM layouts
 
 == Traditional ABM layout
@@ -496,307 +491,86 @@
   [Part of the agent step function],
   [Implements simulation rules and updates state],
 )
+= Cars 2
 
-== The habit rule in both layouts
+== Reimplementing the model using ECS
 
-#v(2.0cm)
-#grid(
-  columns: (1.05fr, 1.15fr),
-  column-gutter: 1.5em,
-  [
-    #text(size: 11pt)[
-      *Classic ABM (Agents.jl)* \
-    ]
-    #align(left)[
-      #text(size: 10.0pt)[
-        ```julia
-        @agent struct Car(GridAgent{2})
-            lr::Float64
-            habitus::Float64
-            direction::Direction
-            age::Int64
-        end
+- The natural way to implement the model in ECS is so that cars move simultaneously.
+- This leads to a problem:
+  - How does a car predict where the other cars are in the next step?
+  $ "LR"^n = bb(E)^bb(P)(s^n | cal(F)_t) + bb(E)^bb(P)(o^n | cal(F)_t) + bb(E)^bb(P)(c^n | cal(F)_t) + h^n $.
+  - $arrow.dashed$ different prediction strategies.
 
-        function update_habitus!(agent, model)
-            agent.habitus = clamp(
-                agent.habitus + relative_lane_sign(
-                    agent.pos[1], agent.direction
-                ) / (model.params.K + agent.age),
-                -1.0, 1.0,
-            )
-        end
+== Prediction strategies
 
-        function agent_step!(agent, model)
-            calculate_lr!(agent, model)
-            move_agent!(agent, intended_position(agent, model), model)
-            agent.age += 1
-            update_habitus!(agent, model)
-        end
-        ```
-      ]
-    ]
-  ],
-  [
-    #text(size: 11pt)[
-      *ECS (Ark.jl)* \
-    ]
-    #align(left)[
-      #text(size: 10.0pt)[
-        ```julia
-        struct Position
-            x::Int64
-            y::Int64
-        end
-        struct Habitus
-            val::Float64
-        end
+#table(
+  columns: (auto, auto),
+  inset: 7pt,
+  align: horizon,
+  [*Strategy*], [*Prediction*],
 
-        function update_habitus!(world)
-            params = Ark.get_resource(world, ModelParams)
-            for (e, pos, dir, hab, step) in
-                Query(world, (Position, Direction, Habitus, Step))
-                @inbounds for i in eachindex(e)
-                    hab[i] = Habitus(clamp(
-                        hab[i].val + relative_lane_sign(
-                            pos[i].x, dir[i]
-                        ) / (params.K + step[i].val),
-                        -1.0, 1.0,
-                    ))
-                end
-            end
-        end
-        ```
-      ]
-    ]
-  ],
+  [*Naive strategy*], [Other cars just stay on their lane],
+
+  [*Switch strategy*], [Other cars switch their lane],
+
+  [*Unsure strategy*], [Both lanes are equally likely],
+
+  [*Per Entity Habitus*], [The car switches lanes based on its habitus],
+
+  [*Mean Absolute Habitus*], [The car is more likely to stay on a lane the higher the mean absolute habitus is],
+
+  [*Random strategy*], [The car gets assigned a random probability to switch lane],
 )
 
-#speaker-note[
-  Both snippets implement the same Hodgson--Knudsen habit rule on the same state. In the classic layout, the habit update is one line inside the agent's step function: behavior is bundled per car, and the framework runs these steps agent by agent, inviting sequential updates. In ECS the same rule is a system: a bulk operation over a query of all matching cars. Update order, information availability, and parallelizability become explicit structural choices.
-]
-
-= Current traffic model
-
-
-== Capability tick
-
-#align(center)[
-  #text(size: 18pt)[
-    previous positions $arrow$ occupancy + bounded observations $arrow$ one LR/lane proposal
-    $arrow$ speed/path proposal $arrow$ synchronous micro-step conflict resolution
-    $arrow$ traces/replacement $arrow$ state and logging
-  ]
-]
-
-- All cars decide from *one committed pre-decision state*.
-- The world resolves their proposed paths together; successful drivers leave
-  traces, collided cars are replaced, then acquired state and aggregates are
-  updated.
-- This ordering makes both update order and information availability explicit.
-
-== What enters LR?
-
-- *Habit:* the driver's own realized-side history, reinforced by the age-dependent Hodgson--Knudsen rule.
-- *Convention:* a private history of locally observed side choices made by *other* drivers @ellisonLearningLocalInteraction1993.
-- *SocialHabit:* a private history of locally observed, decaying traces left by successful drivers.
-
-LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "disposition" dot h^n$ (habit), $w_c dot "confidence" dot c^n$ (convention), via a dedicated scoring system; `propose_lanes!` commits the *sign* of the sum (exploration flips ties with probability $epsilon$). Each term is query-gated on that car's components: a decision rule *is* a component set, so capabilities compose into decision architectures, not parameter variants.
-
-== Current empirical design
-
-#info-box(title: "One repeated design", [
-  5,000 ticks; first 1,000 ticks discarded as burn-in; lookahead 20;
-  120 cars on a 2 $times$ 300 periodic road; usually 30 paired seeds.
-])
-
-- Paired comparisons hold initial conditions and seeds fixed across treatments.
-- Comparison plots show replicate variation with either 95% intervals or mean
-  $plus.minus$ 1 SD; paired-effect intervals are reported with the results.
-- Single-path capability plots are diagnostics, not inferential comparisons.
-
-== Timing and habit
+== Which strategy works best
 #figure()[
-  #image("../../plots/activation_habit_results.png", height: 65%)
+  #image("../../plots/mean_age.png", width: 75%)
 ]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* timing changes compatibility; habit more than offsets the simultaneous loss.]]
-#speaker-note[
-  This experiment uses SequentialModel's activation-order and explicit
-  simultaneous schedulers; it isolates timing semantics rather than switching
-  the CapabilityModel's update rule. The timing sensitivity echoes the
-  classical synchronous-versus-asynchronous results for spatial games
-  @hubermanEvolutionaryGamesComputer1993 @newthAsynchronousSpatialEvolutionary2009a,
-  and the direction agrees: staggered information buys coordination.
-  Their asynchronous prescription targets systems without any shared rhythm,
-  whereas road traffic has one: drivers react to what is visibly happening
-  around them, not to a private schedule. They still decide alone, each
-  against the same visible state; at this timescale a decision responds to
-  the road, not to a neighbor's uncommitted intention. Modeling the period
-  as simultaneous decisions is therefore a behavioral claim, not a clock
-  artifact, and the architecture makes it explicit.
-  The simultaneous/no-habit effect is -0.00312, with 95% bootstrap interval
-  [-0.00351, -0.00272] (magnitude 0.00272--0.00351). Habit raises simultaneous
-  compatibility by 0.00474 [0.00433, 0.00512]. This is an encounter-level
-  result; the aligned one-tick fixture is a mechanism check, not evidence that
-  alignment emerges by itself.
-  Activation order here is fixed by car ID; per-tick shuffling would
-  redistribute the early-mover advantage across drivers without removing
-  the underlying leakage.
-]
-
-== Acquired capabilities
+== The formation of habit
 #figure()[
-  #image("../../plots/social_habit_comparison.png", height: 65%)
+  #image("../../plots/habitus.png", width: 75%)
 ]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* among synchronous treatments, SocialHabit is the strongest pure capability; static mixing improves further.]]
-#speaker-note[
-  The plot is the 30-paired-seed, post-burn-in comparison. SocialHabit's
-  advantage reflects successful-driver traces observed locally, not direct
-  access to driver success or a population-level statistic.
-  The black and purple columns are unit-speed sequential references with
-  within-tick ordering information, not like-for-like capability treatments.
-]
-
-== Evolutionary mixture
-#figure()[
-  #image("../../plots/social_habit_mixture_ensemble_dynamics.png", height: 56%)
-]
-#align(center)[#text(size: 13pt)[*Takeaway:* evolution improves coordination without collapsing profiles.]]
-#align(center)[#text(
-  size: 12pt,
-)[Convention *0.867 [0.848, 0.885]*  ·  coordinated time *0.828 [0.797, 0.859]*  ·  replacements/car-step *0.0380 [0.0357, 0.0403]*]]
 
 = Possible benefits and drawbacks of using ECS for ABMs
 
 == Benefits
-- More natural support for *parallel agent interactions*, both conceptually and computationally.
-- *Compositional heterogeneity* offers a new approach to heterogeneous agents. (Dynamic acquisition of new capabilities)
-- Potential *performance* benefits compared to "agent-oriented" implementations @JuliaDynamicsABMFrameworksComparison2026.
-  - Easy to utilize the GPU.
-  - More ergonomic than the big parallel ABM frameworks (FLAME GPU, ) with potentially minimal loss in performance.
-- Clear support for *modularity* and separation of concerns
-- Encourages a more *systemic* rather than purely individual-centered modeling perspective
+- More natural support for parallel updates, both conceptually and computationally
+- Potential performance benefits @JuliaDynamicsABMFrameworksComparison2026
+- Composition over inheritance
+  - Especially useful for heterogeneous agents
+- Clear support for modularity and separation of concerns
+- Many ECS frameworks support explicit relationships between entities
+- Encourages a more systemic rather than purely individual-centered modeling perspective
 
 == Drawbacks
 
-- *Agent-centric thinking does not map directly onto entity*--component tables;
-  the mental shift is substantial for most modelers.
-- *Boilerplate*: every state variable becomes a wrapper type, and behavior is
-  scattered across many small systems.
-- Very *limited ABM literature* and tooling: no equivalent of the Agents.jl,
-  Mesa, or NetLogo ecosystems @casalsHECATEECSbasedFramework2025.
-- Performance is framework- and workload-dependent
-  @JuliaDynamicsABMFrameworksComparison2026.
-
-#speaker-note[
-  These costs are visible in the traffic codebase: replacement requests are
-  staged between systems and movement snapshots are sorted explicitly for
-  reproducibility, and lane scores, observations, and dispositions each live
-  in their own singleton structs. None of this was fatal, but it raises the
-  entry floor relative to writing one `agent_step!` function.
-]
+- Less intuitive than object-oriented programming for many modelers
+- Code can become more verbose and structurally complex
+- Very limited established literature in the ABM context
 
 
 == Conclusion
-- *The choice of framework is not neutral:* it affects modeling decisions
-  about the information agents hold, update ordering, sequential versus
-  parallel action, and the type of heterogeneity agents posses.
-- *ECS offers an alternative to agent-oriented frameworks*.
-- *The extensions of @hodgsonEconomicsShadowsDarwin2006 show how some choices
-  come more naturally in one architecture:* activation order belongs to the
-  agent view; synchronous resolution belongs to ECS.
-- *ECS is promising for ABMs, but remains underexplored* conceptually and
-  methodologically.
+
+- ECS provides a natural way to model simultaneous interaction.
+- Reimplementing sequential ABMs in ECS forces us to rethink sequentiallity assumptions about the model.
+- In the traffic model, prediction strategy matters greatly for the resulting dynamics.
+- ECS is promising for ABMs, but still underexplored both conceptually and methodologically.
 #show: appendix
 
 = Appendix
 
 
 
-== Single-path diagnostics
+== Stay ratio
 
-#figure(caption: [Analytical histories expose temporal variation in a current capability run.])[
-  #image("../../plots/capability_dynamics.png", height: 52%)
-]
-#align(center)[#text(
-  size: 12pt,
-)[*Diagnostic:* seed `20260730`, mixed static entry; one path illustrates fluctuation, not replicated evidence.]]
-
-== Lane-first vs. speed-first
-#figure()[
-  #image("../../plots/speed_sensitivity_comparison.png", height: 65%)
-]
-#align(center)[#text(size: 13pt)[*Takeaway:* lane-first improves progress and reduces replacements under both regimes.]]
-#speaker-note[
-  Lane-first raises completed progress by 0.166 [0.154, 0.178] cells per
-  car-step under static entry and 0.049 [0.040, 0.058] under evolution;
-  replacements per car-step fall by 0.0486 and 0.0162. Clearance and a speed-2 cap are
-  different treatments, not generic improvements. The published baseline
-  remains the explicit historical speed-first rule.
+#figure(caption: [Stay ratio =  $(hash "lane switches" ) / ( hash "total cars"$) ])[
+  #image("../../plots/stay_ratio.png")
 ]
 
-== Lane-first capability comparison
-#figure()[
-  #image("../../plots/lane_first/social_habit_comparison.png", height: 60%)
+== No habit?
+#figure(caption: "Different strategies when habit is not weighed in in LR calculation")[
+  #image("../../plots/no_habit.png")
 ]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* lane-first transforms synchronous coordination — every capability treatment now matches or beats the sequential reference.]]
-#speaker-note[
-  Full rerun of the published 5,000-tick, 30-paired-seed design with
-  `prefer_lane_over_speed=true`. Convention strength rises from 0.439 to 0.874
-  (Habit), 0.429 to 0.769 (Convention), 0.508 to 0.885 (SocialHabit), 0.630 to
-  0.911 (static entry), and 0.867 to 0.944 (evolutionary); replacement rates
-  fall by roughly three quarters. Even no-habit improves slightly
-  (0.230 $->$ 0.262). Lane-first only reorders the action search of the
-  synchronous capability model, so the sequential reference rows are
-  unchanged.
-]
-
-== Lane-first mixture dynamics
-#figure()[
-  #image("../../plots/lane_first/social_habit_mixture_ensemble_dynamics.png", height: 62%)
-]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* under lane-first, coordination is faster and more stable; evolution still adds robustness.]]
-#speaker-note[
-  Static-entry post-burn-in convention is 0.910 with replacement pressure
-  0.0311; evolutionary is 0.944 with 0.0230. Coordinated time reaches 0.932
-  (static) and 0.982 (evolutionary). Capability-profile diversity remains
-  dispersed under evolution, mirroring the speed-first result.
-]
-
-== Lane-first diagnostics
-#grid(
-  columns: (1fr, 1fr),
-  column-gutter: 1em,
-  [
-    #figure(caption: [No-convention ablation (5 paired seeds).])[
-      #image("../../plots/lane_first/no_convention_comparison.png", height: 52%)
-    ]
-  ],
-  [
-    #figure(caption: [Static-entry single-seed history.])[
-      #image("../../plots/lane_first/capability_dynamics.png", height: 52%)
-    ]
-  ],
-)
-#align(center)[#text(
-  size: 12pt,
-)[*Diagnostic:* habit's coordination benefit survives without convention learning; single-seed paths still fluctuate.]]
-
-== Robustness and interpretation
-
-- The capability ensemble samples histories every 25 ticks and marks the
-  1,000-tick burn-in; broad regime averages are stable after burn-in while
-  individual windows fluctuate.
-- The sequential reference is not like-for-like with synchronous capability
-  outcomes: it is unit-speed and supplies within-tick activation-order
-  information.
 
 
 == Bibliography

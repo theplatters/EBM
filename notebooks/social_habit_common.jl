@@ -7,6 +7,9 @@ using Statistics
 const T = EBM.Traffic
 const S = T.SequentialModel
 
+"""Set `TRAFFIC_PREFER_LANE=true` to run every capability condition lane-first."""
+const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
+
 const CAPABILITY_SCENARIOS = (
     :no_habit,
     :habit,
@@ -128,6 +131,7 @@ function capability_model(config, scenario::Symbol)
         social_trace_retention = config.trace_retention,
         social_trace_deposit = config.trace_deposit,
         max_speed = config.max_speed,
+        prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
         replacement_policy = replacement_policy,
     )
 end

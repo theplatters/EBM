@@ -7,6 +7,10 @@ const SEEDS = 20260730:20260734
 const STEPS = 5_000
 const BURN_IN = 1_000
 
+"""Set `TRAFFIC_PREFER_LANE=true` to run all conditions lane-first."""
+const PREFER_LANE_OVER_SPEED = get(ENV, "TRAFFIC_PREFER_LANE", "false") == "true"
+const OUTPUT_DIR = get(ENV, "TRAFFIC_OUTPUT_DIR", "plots")
+
 function simulate(model, seed; capture_every = nothing)
     args = T.ModelArgs(
         seed = seed,
@@ -60,10 +64,12 @@ end
 entry_habit = T.CapabilityModel(
     habit_share = 0.5,
     convention_share = 0.0,
+    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
 )
 entry_control = T.CapabilityModel(
     habit_share = 0.0,
     convention_share = 0.0,
+    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
 )
 evolutionary_policy = T.EvolutionaryReplacement(
     capability_mutation_rate = 0.02,
@@ -72,11 +78,13 @@ evolutionary_policy = T.EvolutionaryReplacement(
 evolutionary_habit = T.CapabilityModel(
     habit_share = 0.5,
     convention_share = 0.0,
+    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     replacement_policy = evolutionary_policy,
 )
 evolutionary_control = T.CapabilityModel(
     habit_share = 0.0,
     convention_share = 0.0,
+    prefer_lane_over_speed = PREFER_LANE_OVER_SPEED,
     replacement_policy = evolutionary_policy,
 )
 
@@ -110,7 +118,7 @@ for (label, _) in conditions
     println(replace(lowercase(label), ' ' => '_'), "=", summary)
 end
 
-mkpath("plots")
+mkpath(OUTPUT_DIR)
 for (slug, model) in (
         ("entry", entry_habit),
         ("evolutionary", evolutionary_habit),
@@ -118,7 +126,7 @@ for (slug, model) in (
     _, history = simulate(model, first(SEEDS); capture_every = 25)
     @assert all(T._capability_counts(snapshot)[5] == 0 for snapshot in history)
     save(
-        "plots/no_convention_$(slug)_dynamics.png",
+        joinpath(OUTPUT_DIR, "no_convention_$(slug)_dynamics.png"),
         T.plot_traffic_history(history),
     )
 end
@@ -154,8 +162,9 @@ for (panel, (metric, ylabel)) in enumerate(metrics_to_plot)
 end
 Label(
     figure[0, :],
-    "No-convention ablation — mean ± 1 SD across $(length(SEEDS)) paired runs";
+    "No-convention ablation — mean ± 1 SD across $(length(SEEDS)) paired runs" *
+    (PREFER_LANE_OVER_SPEED ? " (lane-first)" : "");
     fontsize = 21,
     font = :bold,
 )
-save("plots/no_convention_comparison.png", figure; px_per_unit = 2)
+save(joinpath(OUTPUT_DIR, "no_convention_comparison.png"), figure; px_per_unit = 2)

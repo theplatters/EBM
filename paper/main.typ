@@ -360,7 +360,12 @@ become visible; they do not by themselves prescribe a software architecture.
 
   Agent $sigma_W (r)$ consequently observes
   $N_(sigma_W (r)) (W^(r-1))$: an earlier activation may change the state seen
-  by a later one. Activation order is behaviorally relevant whenever two
+  by a later one. That this timing is a modeling decision rather than a neutral
+  default is demonstrated in spatial evolutionary games, where the same
+  population reaches qualitatively different attractors when an otherwise
+  unchanged interaction round is resolved in parallel rather than one agent at
+  a time @hubermanEvolutionaryGamesComputer1993 @newthAsynchronousSpatialEvolutionary2009a.
+  Activation order is behaviorally relevant whenever two
   operators do not commute,
 
   $ F_i circle F_j != F_j circle F_i. $
@@ -524,7 +529,7 @@ become visible; they do not by themselves prescribe a software architecture.
 == ECS, data-oriented design, and concurrency
 
 - Introduce ECS origins and its emphasis on composition over inheritance.
-- Discuss formal work on ECS semantics and deterministic concurrency @redmondExploringTheoryPractice2025.
+- Discuss formal work on ECS semantics and deterministic concurrency @redmondExploringTheoryPractice2025a.
 - Separate the architectural pattern from particular archetype storage implementations.
 
 == ECS in ABM and multi-agent systems
@@ -654,7 +659,7 @@ Multiple queries may identify different participant roles in one interaction,
 or they may provide complete populations that a system matches, aggregates, or
 otherwise processes jointly. This is broader than treating every query result
 as an independent invocation, while retaining the Core ECS idea that systems
-declare their inputs through queries @redmondExploringTheoryPractice2025.
+declare their inputs through queries @redmondExploringTheoryPractice2025a.
 
 === Resources
 
@@ -930,7 +935,7 @@ reduction orders make these choices reproducible. Formal accounts of Core ECS
 likewise identify classes of programs whose outcomes are independent of system
 scheduling, establishing deterministic concurrency as a property that can be
 derived from restrictions on system effects rather than assumed from the ECS
-label alone @redmondExploringTheoryPractice2025.
+label alone @redmondExploringTheoryPractice2025a.
 
 ECS therefore exposes opportunities for concurrency but does not eliminate
 interaction dependencies. Systems that contend over shared resources or
@@ -1316,7 +1321,10 @@ paired-seed experiments.
   of one population mechanism and the countervailing task of reconstructing
   one citizen's complete behavior.
 + *RQ3:* Contrast shuffled-sequential and synchronous movement to measure the
-  consequences of visibility and commitment timing. Separately permute only
+  consequences of visibility and commitment timing, whose behavioral relevance
+  is documented for spatial evolutionary games
+  @hubermanEvolutionaryGamesComputer1993 @newthAsynchronousSpatialEvolutionary2009a.
+  Separately permute only
   dependency-admissible systems or kernels and verify complete trajectory
   equality under indexed randomness and deterministic reductions.
 

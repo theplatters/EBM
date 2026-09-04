@@ -193,7 +193,8 @@ end
 figure = Figure(size = (1850, 920), fontsize = 15, backgroundcolor = :white)
 Label(
     figure[0, 1:4],
-    "Monte Carlo dynamics of mixed capabilities — mean ± 1 SD across $replicates paired runs";
+    "Monte Carlo dynamics of mixed capabilities — mean ± 1 SD across $replicates paired runs" *
+    (SocialHabitExperiments.PREFER_LANE_OVER_SPEED ? " (lane-first)" : "");
     fontsize = 23,
     font = :bold,
     tellwidth = false,

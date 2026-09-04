@@ -20,10 +20,20 @@ data manually.
 | `heterogeneous_strategy/*` | `notebooks/generate_heterogeneous_strategy.jl` | 30 paired seeds; mean ± SD |
 | `speed_sensitivity_*` | `notebooks/run_speed_sensitivity_experiment.jl` | 30 paired seeds × static/evolutionary replacement; replicate points and mean ± SD |
 | `examples/*` | `notebooks/generate_traffic_examples.jl` | 5,000-tick seed-42 illustrations |
+| `lane_first/*` | same generators as above, run with `TRAFFIC_PREFER_LANE=true` and `TRAFFIC_OUTPUT_DIR=plots/lane_first` | identical designs and replication as their speed-first counterparts |
 
 Current capability experiments use lookahead 20. Analytical histories sample
 every 25 ticks; `social_habit_mixture_dynamics.csv` has the corresponding
 run-level ensemble data.
+
+The lane-first group is the complete lane-first counterpart of the published
+speed-first capability artifacts: the same generators, seeds, horizons, and
+paired-seed designs, with `prefer_lane_over_speed = true` on every
+`CapabilityModel`. The activation-habit, heterogeneous-strategy, occupancy
+strategy, and sweep groups have no lane-first variant because they do not use
+the capability model's lane/speed action search. The sequential reference rows
+inside `lane_first/social_habit_runs.csv` are unchanged relative to the
+speed-first run for identical seeds.
 
 The main ensemble scripts accept `TRAFFIC_REPLICATES`, `TRAFFIC_STEPS`,
 `TRAFFIC_BURN_IN`, `TRAFFIC_LOOKAHEAD`, and `TRAFFIC_OUTPUT_DIR`. Development
