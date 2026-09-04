@@ -1,10 +1,9 @@
 #import "@preview/touying:0.6.3": *
 #import themes.university: *
-#import "@preview/cetz:0.4.2"
-#import "@preview/fletcher:0.5.8" as fletcher: edge, node
 #import "@preview/numbly:0.1.0": numbly
 #import "@preview/theorion:0.4.1": *
 #import cosmos.clouds: *
+#import "diagrams.typ": classic-abm-data-layout, ecs-data-layout, traditional-abm-layout, what-if-layout
 #show: show-theorion
 #let info-box(title: "Info", body) = {
   block(
@@ -21,9 +20,6 @@
   )
 }
 
-// cetz and fletcher bindings for touying
-#let cetz-canvas = touying-reducer.with(reduce: cetz.canvas, cover: cetz.draw.hide.with(bounds: true))
-#let fletcher-diagram = touying-reducer.with(reduce: fletcher.diagram, cover: fletcher.hide)
 #set cite(style: "apa")
 
 #show: university-theme.with(
@@ -78,80 +74,13 @@
 - Drivers on a roundabout decide on the basis of locally observable cues: available gaps, speeds, brake lights, and lateral positions.
 - Decisions are taken continuously and concurrently, without a global clock or fixed turn order @hubermanEvolutionaryGamesComputer1993.
 - The intentions of other drivers remain unobserved until expressed as visible motion. #pause
-- Defensible rule: all proposals from one observable state, then resolve jointly — `p_i = G_i(W) -> W' = "resolve"(W, {p_i})`.
-- A decision system reads phase-entry state and writes a proposal; resolution reads all proposals. The sequential `agent_step!` loop breaks this by letting later readers see earlier writers in the same transition.
+- To model this: all proposals from one observable state, then joint resolution
+- What is the problem when modeling this in an "agent-centered framework"?
+
 = ABM layouts
 
 == Traditional ABM layout
-#align(center)[
-
-  #cetz-canvas(length: 1.7cm, {
-    import cetz.draw: *
-
-
-    let agent-labels = ("Agent A", "Agent B", "Agent Z")
-    let component-labels = ("Move", "Check Collisions", "Update Habitus", "...", "Choose next lane")
-
-    let cell-width = 3.0
-    let cell-height = 0.8
-    let margin = 0.5
-    let ellipsis-gap = 1.5
-
-    // 1. Background "Model" box
-    rect((-1, 1.5), (13, -6.5), fill: green.lighten(95%), stroke: green.lighten(50%), radius: 2pt)
-    content((6, -5.5), text(weight: "bold", size: 20pt, fill: green.darken(40%), "Model Execution Loop"))
-
-    // 2. Loop to draw Agents
-    for (j, ag) in agent-labels.enumerate() {
-      let x-offset = if j == agent-labels.len() - 1 {
-        (j * (cell-width + margin)) + ellipsis-gap
-      } else {
-        j * (cell-width + margin)
-      }
-
-      if j == agent-labels.len() - 1 {
-        let dots-x = x-offset - (ellipsis-gap / 2) - (margin / 2)
-        content((dots-x, -2.5), text(size: 25pt, weight: "bold", fill: blue.darken(20%), [$dots$]))
-      }
-
-      // Agent Column Background
-      rect(
-        (x-offset, 0.5),
-        (x-offset + cell-width, -(component-labels.len() + 1) * cell-height),
-        fill: blue.lighten(90%),
-        stroke: blue.lighten(50%),
-        radius: 2pt,
-        name: "col-" + str(j),
-      )
-
-      content((x-offset + cell-width / 2, 0), text(weight: "bold", size: 12pt, fill: blue.darken(20%), ag))
-
-      for (i, cl) in component-labels.enumerate() {
-        let y-pos = -(i + 1) * cell-height
-        rect(
-          (x-offset + 0.2, y-pos + 0.3),
-          (x-offset + cell-width - 0.2, y-pos - 0.3),
-          fill: white,
-          stroke: gray.lighten(50%),
-          radius: 1pt,
-          name: "step-" + str(j) + "-" + str(i),
-        )
-        content((x-offset + cell-width / 2, y-pos), text(size: 9pt, style: "italic", cl))
-      }
-    }
-
-    // 3. The Flow Arrows (Appearing after a pause)
-
-    set-style(
-      stroke: (dash: "solid", thickness: 1.5pt, paint: orange.darken(10%), cap: "round"),
-      mark: (fill: orange.darken(10%), end: ">"),
-    )
-
-    bezier((1.0, -5.0), (3.5 + 1.5, 0.3), (5.5, -6.5), (3. - 3 + 1.5, 1.5))
-    bezier((5.0, -5.0), (5.5 + 1.5, 0.3), (11.5, -6.5), (5. - 3 + 1.5, 1.5))
-  })
-
-]
+#align(center)[#traditional-abm-layout]
 #speaker-note[
   + Agents have step functions
   + these step functions run sequentially
@@ -163,66 +92,7 @@
   + What if we group the data not by agents but by systems
   + Luckily  paradigm exists => ECS
 ]
-#align(center)[
-  #cetz-canvas(length: 1.6cm, {
-    import cetz.draw: *
-
-    let agent-labels = ("Agent A", "Agent B", "Agent Z")
-    let component-labels = ("Move", "Check Collisions", "Update Habitus", "...", "Choose next lane")
-
-    let cell-width = 3.0
-    let cell-height = 0.8
-    let margin = 0.5
-    let ellipsis-gap = 1.5
-
-    // 1. Background "Model" box
-    rect((-1, 1.5), (13, -6.5), fill: green.lighten(95%), stroke: green.lighten(50%), radius: 2pt)
-    content((6, -5.5), text(weight: "bold", size: 20pt, fill: green.darken(40%), "Model Execution Loop"))
-
-    // 2. Loop to draw Agents
-    for (j, ag) in agent-labels.enumerate() {
-      let x-offset = if j == agent-labels.len() - 1 {
-        (j * (cell-width + margin)) + ellipsis-gap
-      } else {
-        j * (cell-width + margin)
-      }
-
-      if j == agent-labels.len() - 1 {
-        let dots-x = x-offset - (ellipsis-gap / 2) - (margin / 2)
-        content((dots-x, -2.5), text(size: 25pt, weight: "bold", fill: blue.darken(20%), [$dots$]))
-      }
-
-      // Agent Column Background
-      rect(
-        (x-offset, 0.5),
-        (x-offset + cell-width, -(component-labels.len() + 1) * cell-height),
-        fill: blue.lighten(90%),
-        stroke: blue.lighten(50%),
-        radius: 2pt,
-        name: "col-" + str(j),
-      )
-
-      content((x-offset + cell-width / 2, 0), text(weight: "bold", size: 12pt, fill: blue.darken(20%), ag))
-
-      for (i, cl) in component-labels.enumerate() {
-        let y-pos = -(i + 1) * cell-height
-        rect(
-          (x-offset + 0.2, y-pos + 0.3),
-          (x-offset + cell-width - 0.2, y-pos - 0.3),
-          fill: white,
-          stroke: gray.lighten(50%),
-          radius: 1pt,
-          name: "step-" + str(j) + "-" + str(i),
-        )
-        content((x-offset + cell-width / 2, y-pos), text(size: 9pt, style: "italic", cl))
-      }
-    }
-
-
-    rect((-0.5, -0.3), (12, -1.3), fill: none, stroke: red, radius: 2pt)
-    (pause,)
-    rect((-0.5, -3.6), (12, -4.5), fill: none, stroke: red, radius: 2pt)
-  })]
+#align(center)[#what-if-layout]
 
 
 = ECS (Entity Component System)!
@@ -261,220 +131,20 @@
 == Data layout in a classic ABM
 
 
-#cetz-canvas(length: 1.6cm, {
-  import cetz.draw: *
-
-  // -----------------------------
-  // Configuration
-  // -----------------------------
-  let agent-labels = ("Agent A", "Agent B", "Agent Z")
-  let data-labels = ("Position", "LR", "Habitus", "Parameters")
-
-  let cell-width = 3.0
-  let cell-height = 0.8
-  let margin = 0.5
-  let data-offset = 0.4
-  let ellipsis-gap = 1.5
-
-  let agent-top = 0.5
-  let agent-bottom = -(data-labels.len() + 3) * cell-height
-
-  let data-title-y = -0.5
-  let method-title-y = -4.1
-  let method-box-y = -4.7
-
-  let resource-x = 12.2
-
-  // Array container padding
-  let array-pad-x = 0.35
-  let array-pad-top = 0.55
-  let array-pad-bottom = 0.75
-
-  // -----------------------------
-  // Styles
-  // -----------------------------
-  let world-fill = green.lighten(95%)
-  let world-stroke = green.lighten(50%)
-  let world-text = green.darken(40%)
-
-  let panel-fill = blue.lighten(90%)
-  let panel-stroke = blue.lighten(50%)
-  let panel-text = blue.darken(20%)
-
-  let box-fill = white
-  let box-stroke = gray.lighten(50%)
-
-  let array-stroke = blue.darken(10%)
-  let array-fill = blue.lighten(96%)
-
-  // -----------------------------
-  // Helpers
-  // -----------------------------
-  let draw-entry-box(x, y, w, label) = {
-    rect(
-      (x + 0.2, y + 0.3),
-      (x + w - 0.2, y - 0.3),
-      fill: box-fill,
-      stroke: box-stroke,
-      radius: 1pt,
-    )
-    content((x + w / 2, y), text(size: 9pt, style: "italic", label))
-  }
-
-  let draw-agent-column(x, label) = {
-    rect(
-      (x, agent-top),
-      (x + cell-width, agent-bottom),
-      fill: panel-fill,
-      stroke: panel-stroke,
-      radius: 2pt,
-    )
-
-    content(
-      (x + cell-width / 2, 0),
-      text(weight: "bold", size: 12pt, fill: panel-text, label),
-    )
-
-    content(
-      (x + 0.5, data-title-y),
-      text(weight: "bold", size: 12pt, fill: panel-text, "Data:"),
-    )
-
-    for (i, item) in data-labels.enumerate() {
-      let y = -(i + 1) * cell-height - data-offset
-      draw-entry-box(x, y, cell-width, item)
-    }
-
-    content(
-      (x + 0.7, method-title-y),
-      text(weight: "bold", size: 12pt, fill: panel-text, "Methods:"),
-    )
-    draw-entry-box(x, method-box-y, cell-width, "update")
-  }
-
-  let draw-resource-panel(x, y-top, y-bottom, title, subtitle) = {
-    rect(
-      (x, y-top),
-      (x + cell-width, y-bottom),
-      fill: panel-fill,
-      stroke: panel-stroke,
-      radius: 2pt,
-    )
-
-    let center-y = (y-top + y-bottom) / 2
-    content(
-      (x + cell-width / 2, center-y + 0.5),
-      text(weight: "bold", size: 12pt, fill: panel-text, title),
-    )
-    content(
-      (x + cell-width / 2, center-y - 0.5),
-      text(weight: "bold", size: 12pt, fill: panel-text, subtitle),
-    )
-  }
-
-  let agent-x(j) = if j == agent-labels.len() - 1 {
-    j * (cell-width + margin) + ellipsis-gap
-  } else {
-    j * (cell-width + margin)
-  }
-
-  // -----------------------------
-  // World background
-  // -----------------------------
-  rect(
-    (-1, 1.5),
-    (16, -6.8),
-    fill: world-fill,
-    stroke: world-stroke,
-    radius: 2pt,
-  )
-  content(
-    (6, -6.2),
-    text(weight: "bold", size: 20pt, fill: world-text, "World"),
-  )
-
-  // -----------------------------
-  // Agents array container
-  // -----------------------------
-  let first-agent-x = agent-x(0)
-  let last-agent-x = agent-x(agent-labels.len() - 1)
-
-  let array-left = first-agent-x - array-pad-x
-  let array-right = last-agent-x + cell-width + array-pad-x
-  let array-top = agent-top + array-pad-top
-  let array-bottom = agent-bottom - array-pad-bottom
-
-  rect(
-    (array-left, array-top),
-    (array-right, array-bottom),
-    fill: array-fill,
-    stroke: array-stroke,
-    radius: 3pt,
-  )
-
-  content(
-    (array-left + 1.0, array-top - 0.25),
-    text(weight: "bold", size: 13pt, fill: array-stroke, "Agents[]"),
-  )
-
-  // Optional array brackets effect
-  content(
-    (array-left - 0.15, (array-top + array-bottom) / 2),
-    text(size: 28pt, weight: "bold", fill: array-stroke, "["),
-  )
-  content(
-    (array-right + 0.15, (array-top + array-bottom) / 2),
-    text(size: 28pt, weight: "bold", fill: array-stroke, "]"),
-  )
-
-  // -----------------------------
-  // Agents as array entries
-  // -----------------------------
-  for (j, agent) in agent-labels.enumerate() {
-    let x = agent-x(j)
-
-    if j == agent-labels.len() - 1 {
-      let dots-x = x - ellipsis-gap / 2 - margin / 2
-      content(
-        (dots-x, -2.5),
-        text(size: 25pt, weight: "bold", fill: panel-text, [$dots$]),
-      )
-      content(
-        (dots-x, array-bottom - 0.25),
-        text(size: 10pt, fill: panel-text, "…"),
-      )
-    }
-
-    draw-agent-column(x, agent)
-
-    let array-label = if j == 2 {
-      "n -1"
-    } else {
-      str(j)
-    }
-
-    content(
-      (x + cell-width / 2, array-bottom - 0.25),
-      text(size: 10pt, fill: panel-text, "[" + array-label + "]"),
-    )
-  }
-
-  // -----------------------------
-  // Resources
-  // -----------------------------
-  let resources = (
-    (0.5, -3 * cell-height, "Resource A", "Occupation Table"),
-    (-3.0, -7.0 * cell-height, "Resource B", "RNG"),
-  )
-
-  for (top, bottom, title, subtitle) in resources {
-    draw-resource-panel(resource-x, top, bottom, title, subtitle)
-  }
-})
+#classic-abm-data-layout
 == ECS data layout
 
-#figure()[
-  #image("assets/ECS_Simple_Layout.svg", height: 80%)
+#v(0.5fr)
+#align(center)[
+  #scale(x: 130%, y: 130%, reflow: true)[#ecs-data-layout]
+]
+
+#v(0.5fr)
+
+#speaker-note[
+  + Contrast with the previous slide: the table is transposed — state lives in component rows, not inside agent objects.
+  + Dashed cells are capabilities a car has not acquired; which systems apply to a car follows from its component set.
+  + Each arrow is a query, so what a system reads and writes — its information availability — is explicit in the structure.
 ]
 
 == ABM in ECS terms
@@ -600,23 +270,12 @@
 - *Convention:* a private history of locally observed side choices made by *other* drivers @ellisonLearningLocalInteraction1993.
 - *SocialHabit:* a private history of locally observed, decaying traces left by successful drivers.
 
-LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "disposition" dot h^n$ (habit), $w_c dot "confidence" dot c^n$ (convention), via a dedicated scoring system; `propose_lanes!` commits the *sign* of the sum (exploration flips ties with probability $epsilon$). Each term is query-gated on that car's components: a decision rule *is* a component set, so capabilities compose into decision architectures, not parameter variants.
+LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "disposition" dot h^n$ (habit), $w_c dot "confidence" dot c^n$ (convention), via a dedicated scoring system; `propose_lanes!` commits the *sign* of the sum.
 
-== Current empirical design
-
-#info-box(title: "One repeated design", [
-  5,000 ticks; first 1,000 ticks discarded as burn-in; lookahead 20;
-  120 cars on a 2 $times$ 300 periodic road; usually 30 paired seeds.
-])
-
-- Paired comparisons hold initial conditions and seeds fixed across treatments.
-- Comparison plots show replicate variation with either 95% intervals or mean
-  $plus.minus$ 1 SD; paired-effect intervals are reported with the results.
-- Single-path capability plots are diagnostics, not inferential comparisons.
 
 == Timing and habit
 #figure()[
-  #image("../../plots/activation_habit_results.png", height: 65%)
+  #image("../../plots/activation_habit_results.png", height: 85%)
 ]
 #align(center)[#text(
   size: 13pt,
@@ -647,7 +306,7 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 
 == Acquired capabilities
 #figure()[
-  #image("../../plots/social_habit_comparison.png", height: 65%)
+  #image("../../plots/social_habit_comparison.png", height: 85%)
 ]
 #align(center)[#text(
   size: 13pt,
@@ -699,15 +358,24 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   entry floor relative to writing one `agent_step!` function.
 ]
 
+== Outlook
+- Scheduler (Helm.jl) for Ark.jl in progress.
+  - Helps make dependencies of systems explicit, leading to automatic parallel scheduling between systems and easier modularity.
+  - Could enable automatic ODD exporting @grimmODDProtocolDescribing2020.
+- Rewrote BeforeIT @glielmoBeforeITjlHighPerformanceAgentBased2025 @polednaEconomicForecastingAgentbased2023 from a Structure of Arrays approach to ECS
+  - Modular Macro-ABM?
+- More experiments with ABMs that truly benefit from compositional heterogeneity.
+
 
 == Conclusion
 - *The choice of framework is not neutral:* it affects modeling decisions
   about the information agents hold, update ordering, sequential versus
-  parallel action, and the type of heterogeneity agents posses.
+  parallel action, and the type of heterogeneity agents possess.
 - *ECS offers an alternative to agent-oriented frameworks*.
-- *The extensions of @hodgsonEconomicsShadowsDarwin2006 show how some choices
-  come more naturally in one architecture:* activation order belongs to the
-  agent view; synchronous resolution belongs to ECS.
+- The extensions of #cite(<hodgsonEconomicsShadowsDarwin2006>, form: "prose") show how architecture
+  shapes which modeling choices are easiest to express: agent-oriented layouts
+  favor activation-order updates, while ECS makes staged synchronous resolution
+  more explicit
 - *ECS is promising for ABMs, but remains underexplored* conceptually and
   methodologically.
 #show: appendix
