@@ -6,10 +6,12 @@ include(joinpath(@__DIR__, "social_habit_common.jl"))
 using .SocialHabitExperiments
 
 const T = EBM.Traffic
-const MIXTURE_SCENARIOS = (
-    :mixture_static_replacement,
-    :mixture_evolutionary_replacement,
-)
+const CAPABILITY_SCENARIO = :mixture_static_replacement
+
+env_int(name, default) = parse(Int, get(ENV, name, string(default)))
+env_float(name, default) = parse(Float64, get(ENV, name, string(default)))
+
+const AVOIDANCE_DISABLE_AGE = env_int("TRAFFIC_AVOIDANCE_DISABLE_AGE", 50)
 const DYNAMIC_COLUMNS = (
     :seed,
     :scenario,
@@ -24,9 +26,6 @@ const DYNAMIC_COLUMNS = (
     :all_three_share,
     :effective_profiles,
 )
-
-env_int(name, default) = parse(Int, get(ENV, name, string(default)))
-env_float(name, default) = parse(Float64, get(ENV, name, string(default)))
 
 replicates = env_int("TRAFFIC_REPLICATES", 30)
 first_seed = env_int("TRAFFIC_FIRST_SEED", 20260901)
@@ -62,16 +61,32 @@ sample_every <= steps || error("TRAFFIC_DYNAMIC_EVERY must not exceed TRAFFIC_ST
 steps % sample_every == 0 ||
     error("TRAFFIC_STEPS must be divisible by TRAFFIC_DYNAMIC_EVERY")
 
-for scenario in MIXTURE_SCENARIOS
-    model = capability_model(config, scenario)
-    hook = scenario == :mixture_evolutionary_replacement ? uniform_newborn_risk! : nothing
-    if scenario == :mixture_evolutionary_replacement
-        @assert model.replacement_policy isa T.EvolutionaryReplacement "evolutionary mixture must use EvolutionaryReplacement"
-        @assert hook === uniform_newborn_risk! "evolutionary mixture must use uniform_newborn_risk!"
-    else
-        @assert model.replacement_policy isa T.EntryDrawReplacement "static mixture must use EntryDrawReplacement"
-        @assert hook === nothing "static mixture must not use a post-step hook"
-    end
+# Both conditions are static mixed capabilities under EntryDrawReplacement; the
+# only difference is whether reactive avoidance responses are disabled once a
+# driver's Step age reaches the threshold. The CapabilityModel field applies
+# the threshold exactly at decision time, so no post-step hook or entity-before
+# bookkeeping is required.
+const CONDITIONS = (
+    (
+        csv_scenario = "mixture_static_replacement",
+        label = "Static entry",
+        avoidance_disable_age = nothing,
+    ),
+    (
+        csv_scenario = "avoidance_off_age_$(AVOIDANCE_DISABLE_AGE)",
+        label = "Avoidance off at age $AVOIDANCE_DISABLE_AGE",
+        avoidance_disable_age = AVOIDANCE_DISABLE_AGE,
+    ),
+)
+
+for condition in CONDITIONS
+    model = capability_model(
+        config,
+        CAPABILITY_SCENARIO;
+        avoidance_disable_age = condition.avoidance_disable_age,
+    )
+    @assert model.replacement_policy isa T.EntryDrawReplacement "both conditions must use EntryDrawReplacement"
+    @assert model.avoidance_disable_age == condition.avoidance_disable_age "model avoidance threshold must match condition"
 end
 
 function capability_share(cars, capability_index)
@@ -123,8 +138,12 @@ function dynamic_row(world, seed, scenario, step, replacement_pressure,
     )
 end
 
-function run_dynamic_condition(config, seed, scenario)
-    model = capability_model(config, scenario)
+function run_dynamic_condition(config, seed, condition)
+    model = capability_model(
+        config,
+        CAPABILITY_SCENARIO;
+        avoidance_disable_age = condition.avoidance_disable_age,
+    )
     world = T.setup_world(
         T.ModelArgs(
             seed = seed,
@@ -133,24 +152,26 @@ function run_dynamic_condition(config, seed, scenario)
             steps = 0,
         ),
     )
-    hook = scenario == :mixture_evolutionary_replacement ? uniform_newborn_risk! : nothing
-    rows = NamedTuple[dynamic_row(world, seed, scenario, 0, 0.0, 0.0)]
+    rows = NamedTuple[dynamic_row(world, seed, condition.csv_scenario, 0, 0.0, 0.0)]
     replacements = 0
     completed_cells = 0
     for step in 1:config.steps
-        before = hook === nothing ? nothing : Set(
-            entity
-                for (entities, _) in T.Query(world, (T.Position,)) for entity in entities
-        )
         T.step!(world, model)
-        hook === nothing || hook(world, before, step)
         diagnostics = T.Ark.get_resource(world, T.CapabilityTickDiagnostics)
-        replacements += last(T.Ark.get_resource(world, T.Logger).deaths)
         completed_cells += diagnostics.realized_speed_total
+        replacements += last(T.Ark.get_resource(world, T.Logger).deaths)
         if step % sample_every == 0
-            push!(rows, dynamic_row(world, seed, scenario, step,
-                                    replacements / (sample_every * config.population),
-                                    completed_cells / (sample_every * config.population)))
+            push!(
+                rows,
+                dynamic_row(
+                    world,
+                    seed,
+                    condition.csv_scenario,
+                    step,
+                    replacements / (sample_every * config.population),
+                    completed_cells / (sample_every * config.population),
+                ),
+            )
             replacements = 0
             completed_cells = 0
         end
@@ -159,7 +180,7 @@ function run_dynamic_condition(config, seed, scenario)
 end
 
 samples_per_condition = steps ÷ sample_every + 1
-conditions_per_seed = length(MIXTURE_SCENARIOS)
+conditions_per_seed = length(CONDITIONS)
 rows = Vector{NamedTuple}(
     undef,
     length(config.seeds) * conditions_per_seed * samples_per_condition,
@@ -169,15 +190,15 @@ progress_lock = ReentrantLock()
 Threads.@threads for seed_index in eachindex(config.seeds)
     seed = config.seeds[seed_index]
     offset = (seed_index - 1) * conditions_per_seed * samples_per_condition
-    for (scenario_index, scenario) in enumerate(MIXTURE_SCENARIOS)
-        condition_rows = run_dynamic_condition(config, seed, scenario)
+    for (scenario_index, condition) in enumerate(CONDITIONS)
+        condition_rows = run_dynamic_condition(config, seed, condition)
         first_index = offset + (scenario_index - 1) * samples_per_condition + 1
         rows[first_index:(first_index + samples_per_condition - 1)] = condition_rows
         count = Threads.atomic_add!(completed, 1) + 1
         lock(progress_lock) do
             println(
                 "completed $count/$(length(config.seeds) * conditions_per_seed): " *
-                "seed=$seed, scenario=$scenario",
+                "seed=$seed, scenario=$(condition.csv_scenario)",
             )
         end
     end
@@ -185,7 +206,7 @@ end
 
 output_dir = get(ENV, "TRAFFIC_OUTPUT_DIR", joinpath(@__DIR__, "..", "plots"))
 mkpath(output_dir)
-csv_path = joinpath(output_dir, "uniform_risk_mixture_dynamics.csv")
+csv_path = joinpath(output_dir, "age50_avoidance_mixture_dynamics.csv")
 open(csv_path, "w") do io
     println(io, join(string.(DYNAMIC_COLUMNS), ','))
     for row in rows
@@ -210,8 +231,12 @@ function ensemble_summary(rows, scenario, metric)
 end
 
 conditions = (
-    (:mixture_static_replacement, "Static entry", :darkorange2),
-    (:mixture_evolutionary_replacement, "Evolutionary + uniform risk", :firebrick2),
+    ("mixture_static_replacement", "Static entry", :darkorange2),
+    (
+        "avoidance_off_age_$(AVOIDANCE_DISABLE_AGE)",
+        "Avoidance off at age $AVOIDANCE_DISABLE_AGE",
+        :firebrick2,
+    ),
 )
 function metric_panel!(axis, metric; limits = nothing, legend = false)
     for (scenario, label, color) in conditions
@@ -242,7 +267,8 @@ figure = Figure(size = (1850, 920), fontsize = 15, backgroundcolor = :white)
 Label(
     figure[0, 1:4],
     "Mixed-capability dynamics — mean ± 1 SD across $replicates paired runs\n" *
-    "Risk is independently entry-drawn and non-heritable; capabilities and quantitative traits may evolve",
+    "Capabilities and risk are entry-drawn and non-heritable; reactive lane responses switch off " *
+    "at driver age ≥ $AVOIDANCE_DISABLE_AGE",
     fontsize = 23,
     font = :bold,
     tellwidth = false,
@@ -290,7 +316,7 @@ for (column, (metric, title)) in enumerate((
 end
 rowgap!(figure.layout, 16)
 colgap!(figure.layout, 18)
-plot_path = joinpath(output_dir, "uniform_risk_mixture_ensemble_dynamics.png")
+plot_path = joinpath(output_dir, "age50_avoidance_mixture_ensemble_dynamics.png")
 save(plot_path, figure; px_per_unit = 2)
-println("wrote uniform-risk mixture dynamics: $csv_path")
+println("wrote age-50 avoidance mixture dynamics: $csv_path")
 println("wrote mean ± 1 SD visualization: $plot_path")

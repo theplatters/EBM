@@ -26,10 +26,12 @@
   aspect-ratio: "16-9",
   config-common(frozen-counters: (theorem-counter,)), // freeze theorem counter for animation
   config-info(
-    title: [Rethinking ABM Architecture],
-    subtitle: [Entity Component Systems and the Case for Parallel Agent Interaction],
+    title: [
+      Beyond the Agent Object
+    ],
+    subtitle: [Entity Component Systems as an Architecture for Agent-Based Modeling],
     author: [Franz Scharnreitner],
-    date: datetime(year: 2026, day: 04, month: 03),
+    date: datetime(year: 2026, day: 09, month: 09),
     institution: [ICAE Linz],
   ),
 )
@@ -67,9 +69,7 @@
 == The real world
 
 #speaker-note[
-  + Ask what information an activation order gives later drivers within the same tick.
-  + Emphasize that update timing is a modeling choice shaped, but not determined, by architecture.
-  + The timing slide defends joint resolution as a behavioral claim about observability, not a clock claim.
+  Nur kurz auf LR eingehen
 ]
 - Drivers on a roundabout decide on the basis of locally observable cues: available gaps, speeds, brake lights, and lateral positions.
 - Decisions are taken continuously and concurrently, without a global clock or fixed turn order @hubermanEvolutionaryGamesComputer1993.
@@ -89,8 +89,7 @@
 == What if?
 
 #speaker-note[
-  + What if we group the data not by agents but by systems
-  + Luckily  paradigm exists => ECS
+  + Sagen, dass das ein Beispiel ist.
 ]
 #align(center)[#what-if-layout]
 
@@ -118,6 +117,10 @@
 
 == A short introduction
 
+
+#speaker-note[
+  + Noch mal überlegen wie präsentieren
+]
 
 - ECS stands for *Entity Component System*. It is a programming pattern that separates data from behavior.
 - *Entities* are unique identifiers. By themselves they do not contain logic or meaning; they simply represent individual objects in the simulation.
@@ -248,21 +251,12 @@
 = Current traffic model
 
 
-== Capability tick
-
-#align(center)[
-  #text(size: 18pt)[
-    committed positions $arrow$ bounded observations $arrow$ binding LR/lane decision
-    $arrow$ risk-adjusted speed proposal $arrow$ synchronous micro-step collision detection
-    $arrow$ successful-driver traces/replacement $arrow$ acquired state/logging
-  ]
-]
+== New additions
 
 - All cars decide from *one committed pre-decision state*.
 - LR determines the final lane; speed is chosen only on that binding lane.
 - A car attempts maximum speed (normally 3), makes one seeded draw, and accepts danger with probability $1 - "risk aversion"$.
 - Rejected danger causes progressively lower-speed tests; speed 1 is the unavoidable-risk fallback when every speed is dangerous.
-- Successful drivers leave traces, collided cars are replaced, then acquired state and aggregates are updated.
 
 == What enters LR?
 
@@ -324,7 +318,10 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   lifetime and is non-heritable. Capability mutation rate is .02 and quantitative
   trait mutation scale is .05. Sequential references have no RiskAversion
   component. Keeping risk independent and non-heritable separates capability
-  evolution from inherited-risk selection.
+  evolution from inherited-risk selection. The bottom-right panel reports
+  successfully realized movement: survivor-completed cells divided by all
+  car-steps. For the unit-speed sequential references, this is the analogous
+  surviving fraction rather than a hard-coded speed of one.
 ]
 
 == Mixed capability dynamics
@@ -351,6 +348,33 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   and .179. The gap is real in sample means, but the evolutionary trajectories
   show substantial between-seed variation, so the figure supports a difference in
   ensemble means rather than a universal directional claim for every seed.
+  Throughput is survivor-completed cells per car-step, aggregated over the same
+  25-tick windows as replacement pressure; collided movements contribute zero.
+]
+
+== Avoidance retires at age 50
+#figure()[
+  #image("../../plots/age50_avoidance_mixture_ensemble_dynamics.png", width: 88%)
+]
+#align(center)[#text(
+  size: 13pt,
+)[*Takeaway:* habit, convention, and social habit sustain the convention after the reactive responses switch off, with only small aggregate changes.]]
+#speaker-note[
+  30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in, sampling
+  every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Both scenarios
+  use EntryDrawReplacement, so risk is an independently entry-drawn, non-heritable
+  Uniform(0,1) draw per entrant, and mixed H/C/S entry shares are .5. The only
+  treatment difference is an opt-in threshold that, at Step age >= 50, excludes the
+  SameDirectionResponse, OppositeDirectionResponse, and NearFieldAvoidance score
+  contributions from decisions while preserving their components and genomes — and
+  thus preserving the other experiments. Across strictly post-burn-in samples,
+  the observed run-average ensemble means are convention 0.959066 baseline
+  versus 0.960913 treatment; replacement pressure 0.025498 versus 0.024650;
+  and completed cells per car-step 2.903665 versus 2.907006. Throughput sums
+  survivor-realized distance over each 25-tick window and divides by all
+  car-steps, so collided movements contribute zero. These are small sample-mean
+  shifts, not broad causal certainty: the convention persists once the reactive
+  responses retire, with little aggregate effect on the reported quantities.
 ]
 
 = Possible benefits and drawbacks of using ECS for ABMs
@@ -366,7 +390,7 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 
 == Drawbacks
 
-- *Agent-centric thinking does not map directly onto entity*--component tables;
+- *Agent-centric thinking does not map directly onto entity-component tables*:
   the mental shift is substantial for most modelers.
 - *Boilerplate*: every state variable becomes a wrapper type, and behavior is
   scattered across many small systems.
@@ -437,6 +461,38 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   low/high-risk regimes prevent a claim of universal selection toward lower risk.
 ]
 
+
+== Robustness: avoidance shutdown age
+#figure()[
+  #image("../../plots/avoidance_age_robustness.png", width: 94%)
+]
+#align(center)[#text(
+  size: 13pt,
+)[*Takeaway:* most thresholds slightly strengthen convention and lower replacement pressure; age 1 produces the clearest reversal, while speed effects remain small.]]
+#speaker-note[
+  This sweep comes from `notebooks/run_avoidance_age_robustness.jl`. Design:
+  30 paired seeds 20260901:20260930; baseline plus thresholds N = 1:50 where
+  all three reactive lane-response score contributions
+  (SameDirectionResponse, OppositeDirectionResponse, NearFieldAvoidance) stop
+  at Step age >= N; both use static mixed-capability EntryDrawReplacement and
+  a non-heritable, independently entry-drawn Uniform(0,1) risk; 2,000 ticks,
+  1,000-tick burn-in, population 120 on a 2 x 300 ring, lookahead 20;
+  convention and speed sampled every 25 ticks post-burn-in, replacement exact
+  across post-burn-in ticks; the CSV holds 1,500 paired seed×age rows; the
+  plot shows mean treatment-minus-baseline differences with a normal 95%
+  paired-mean CI. The plotted difference is treatment minus same-seed
+  baseline. Age 1 disables the reactive score terms from the car's first
+  decision, so it is an edge case; age 50 is the current main treatment
+  reported in the main results. These are sample estimates and a sensitivity
+  pattern, not broad certainty. Representative results with 95% normal
+  paired-mean CIs: at age 1 convention -0.004389 [-0.006862, -0.001916],
+  replacement +0.004703 [+0.004133, +0.005273], speed +0.001111
+  [-0.000552, +0.002774]; at age 5 convention +0.005708 [+0.003159,
+  +0.008257], replacement -0.001922 [-0.002430, -0.001415], speed +0.002299
+  [+0.000588, +0.004009]; at age 50 convention +0.000639 [-0.002326,
+  +0.003603], replacement -0.000636 [-0.001407, +0.000135], speed +0.002000
+  [+0.000024, +0.003976].
+]
 
 == Bibliography
 

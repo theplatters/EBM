@@ -122,7 +122,8 @@ metric_panel!(Axis(figure[1, 2]), :replacement_rate,
               "Replacement pressure (per car-step)")
 metric_panel!(Axis(figure[2, 1]), :coordinated_fraction,
               "Coordinated fraction (convention ≥ $(config.convention_target))")
-metric_panel!(Axis(figure[2, 2]), :mean_speed, "Mean chosen speed")
+metric_panel!(Axis(figure[2, 2]), :completed_cells_per_car_step,
+              "Completed cells per car-step")
 Label(figure[0, :],
       "Capability comparison — risk is Uniform(0,1), independently entry-drawn and non-heritable\ncapabilities may evolve in the mixed evolutionary treatment; replicate points, mean ± 95% mean interval";
       fontsize = 21, font = :bold)

@@ -49,6 +49,7 @@ Base.@kwdef struct CapabilityModel <: OccupancyStrategy
     social_trace_retention::Float64 = 0.9
     social_trace_deposit::Float64 = 0.25
     max_speed::Int = 3
+    avoidance_disable_age::Union{Nothing, Int} = nothing
     replacement_policy::CapabilityReplacementPolicy = EntryDrawReplacement()
 end
 
@@ -81,6 +82,8 @@ function validate(model::CapabilityModel)
     model.social_trace_deposit > 0.0 ||
         throw(ArgumentError("social_trace_deposit must be positive"))
     1 <= model.max_speed <= 3 || throw(ArgumentError("max_speed must be in 1:3"))
+    isnothing(model.avoidance_disable_age) || model.avoidance_disable_age > 0 ||
+        throw(ArgumentError("avoidance_disable_age must be positive"))
     validate(model.replacement_policy)
     return model
 end

@@ -67,6 +67,7 @@ const RESULT_COLUMNS = (
     :final_convention_strength,
     :mean_disposition_strength,
     :mean_speed,
+    :completed_cells_per_car_step,
     :replacement_rate,
     :time_to_convention,
     :coordinated_fraction,
@@ -112,7 +113,7 @@ function model_params(config)
     )
 end
 
-function capability_model(config, scenario::Symbol)
+function capability_model(config, scenario::Symbol; avoidance_disable_age = nothing)
     scenario in CAPABILITY_SCENARIOS ||
         throw(ArgumentError("unknown capability scenario: $scenario"))
     mixed = scenario in (
@@ -124,7 +125,7 @@ function capability_model(config, scenario::Symbol)
             capability_mutation_rate = config.capability_mutation_rate,
             trait_mutation_scale = config.trait_mutation_scale,
         ) : T.EntryDrawReplacement()
-    return T.CapabilityModel(
+    model = T.CapabilityModel(
         same_direction_share = 1.0,
         opposite_direction_share = 1.0,
         avoidance_share = 1.0,
@@ -142,8 +143,11 @@ function capability_model(config, scenario::Symbol)
         social_trace_retention = config.trace_retention,
         social_trace_deposit = config.trace_deposit,
         max_speed = config.max_speed,
+        avoidance_disable_age = avoidance_disable_age,
         replacement_policy = replacement_policy,
     )
+    T.validate(model)
+    return model
 end
 
 function convention_strength(world)
@@ -243,9 +247,16 @@ function mean_speed(world)
     return iszero(count) ? 0.0 : total / count
 end
 
+"""Return successful cells per configured car-step for the latest tick."""
+function completed_cells_per_car_step(world)
+    diagnostics = T.Ark.get_resource(world, T.CapabilityTickDiagnostics)
+    population = T.Ark.get_resource(world, T.ModelParams).init_agents
+    return diagnostics.realized_speed_total / population
+end
+
 function summarize_samples(
         config, seed, implementation, scenario, conventions, dispositions,
-        speeds, deaths, time_to_convention;
+        speeds, completed_cells, deaths, time_to_convention;
         max_speed,
         capability_shares = (habit = NaN, convention = NaN, social = NaN, all = NaN),
     )
@@ -280,6 +291,7 @@ function summarize_samples(
         final_convention_strength = last(conventions),
         mean_disposition_strength = mean(dispositions),
         mean_speed = mean(speeds),
+        completed_cells_per_car_step = mean(completed_cells),
         replacement_rate = deaths / (sampled_steps * config.population),
         time_to_convention = something(time_to_convention, -1),
         coordinated_fraction = mean(coordinated),
@@ -316,6 +328,7 @@ function run_capability_condition(config, seed, scenario; post_step_hook = nothi
     conventions = Float64[]
     dispositions = Float64[]
     speeds = Float64[]
+    completed_cells = Float64[]
     deaths = 0
     time_to_convention = nothing
 
@@ -327,6 +340,7 @@ function run_capability_condition(config, seed, scenario; post_step_hook = nothi
         end
         T.step!(world, model)
         post_step_hook === nothing || post_step_hook(world, entities_before_step, step)
+        completed_cells_this_tick = completed_cells_per_car_step(world)
         strength = convention_strength(world)
         isnothing(time_to_convention) && strength >= config.convention_target &&
             (time_to_convention = step)
@@ -334,6 +348,7 @@ function run_capability_condition(config, seed, scenario; post_step_hook = nothi
             push!(conventions, strength)
             push!(dispositions, disposition_strength(world, scenario))
             push!(speeds, mean_speed(world))
+            push!(completed_cells, completed_cells_this_tick)
             logger = T.Ark.get_resource(world, T.Logger)
             deaths += last(logger.deaths)
         end
@@ -347,6 +362,7 @@ function run_capability_condition(config, seed, scenario; post_step_hook = nothi
         conventions,
         dispositions,
         speeds,
+        completed_cells,
         deaths,
         time_to_convention;
         max_speed = config.max_speed,
@@ -379,6 +395,7 @@ function run_sequential_condition(config, seed, scenario)
     conventions = Float64[]
     dispositions = Float64[]
     speeds = Float64[]
+    completed_cells = Float64[]
     deaths = 0
     time_to_convention = nothing
 
@@ -389,13 +406,15 @@ function run_sequential_condition(config, seed, scenario)
             (time_to_convention = step)
         if step > config.burn_in
             cars = collect(allagents(model))
+            deaths_this_tick = last(model.diagnostics.deaths)
             push!(conventions, strength)
             push!(
                 dispositions,
                 scenario == :habit ? mean(abs(car.habitus) for car in cars) : 0.0,
             )
             push!(speeds, 1.0)
-            deaths += last(model.diagnostics.deaths)
+            push!(completed_cells, (config.population - deaths_this_tick) / config.population)
+            deaths += deaths_this_tick
         end
     end
 
@@ -407,6 +426,7 @@ function run_sequential_condition(config, seed, scenario)
         conventions,
         dispositions,
         speeds,
+        completed_cells,
         deaths,
         time_to_convention;
         max_speed = 1,
@@ -498,16 +518,17 @@ function parse_result(parts)
         final_convention_strength = parse(Float64, parts[12]),
         mean_disposition_strength = parse(Float64, parts[13]),
         mean_speed = parse(Float64, parts[14]),
-        replacement_rate = parse(Float64, parts[15]),
-        time_to_convention = parse(Int, parts[16]),
-        coordinated_fraction = parse(Float64, parts[17]),
-        coordination_entries = parse(Int, parts[18]),
-        mean_coordinated_episode = parse(Float64, parts[19]),
-        longest_coordinated_episode = parse(Int, parts[20]),
-        final_habit_share = parse(Float64, parts[21]),
-        final_convention_share = parse(Float64, parts[22]),
-        final_social_habit_share = parse(Float64, parts[23]),
-        final_all_three_share = parse(Float64, parts[24]),
+        completed_cells_per_car_step = parse(Float64, parts[15]),
+        replacement_rate = parse(Float64, parts[16]),
+        time_to_convention = parse(Int, parts[17]),
+        coordinated_fraction = parse(Float64, parts[18]),
+        coordination_entries = parse(Int, parts[19]),
+        mean_coordinated_episode = parse(Float64, parts[20]),
+        longest_coordinated_episode = parse(Int, parts[21]),
+        final_habit_share = parse(Float64, parts[22]),
+        final_convention_share = parse(Float64, parts[23]),
+        final_social_habit_share = parse(Float64, parts[24]),
+        final_all_three_share = parse(Float64, parts[25]),
     )
 end
 
@@ -545,6 +566,8 @@ function validate_results(rows)
     end
     all(row -> 0.0 <= row.replacement_rate <= 1.0, rows) ||
         error("replacement rates must be in [0, 1]")
+    all(row -> 0.0 <= row.completed_cells_per_car_step <= row.max_speed, rows) ||
+        error("completed cells per car-step must be within the configured speed range")
     return seeds
 end
 
@@ -561,6 +584,7 @@ export CAPABILITY_SCENARIOS,
     RESULT_COLUMNS,
     SEQUENTIAL_SCENARIOS,
     capability_model,
+    completed_cells_per_car_step,
     condition_values,
     read_results,
     run_capability_condition,

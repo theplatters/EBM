@@ -243,6 +243,110 @@ end
     )
 end
 
+@testset "Opt-in reactive capability shutdown" begin
+    params = Traffic.ModelParams(init_agents = 1, ring_y = 20, lookahead = 5)
+
+    function reactive_score(age; avoidance_disable_age = nothing)
+        model = Traffic.CapabilityModel(
+            same_direction_share = 1.0,
+            opposite_direction_share = 1.0,
+            avoidance_share = 1.0,
+            avoidance_disable_age = avoidance_disable_age,
+        )
+        world = Traffic.setup_world(Traffic.ModelArgs(
+            seed = 7,
+            params = params,
+            prediction_strategy = model,
+            steps = 0,
+        ))
+        for (_, observations, same, opposite, avoidance, scores, steps) in Traffic.Query(
+                world,
+                (Traffic.LocalObservation, Traffic.SameDirectionResponse,
+                 Traffic.OppositeDirectionResponse, Traffic.NearFieldAvoidance,
+                 Traffic.LaneScore, Traffic.Step),
+            )
+            observations[1] = Traffic.LocalObservation(1.0, 0.0, 0.0, 2.0, 0.0, 0)
+            same[1] = Traffic.SameDirectionResponse(1.0)
+            opposite[1] = Traffic.OppositeDirectionResponse(1.0)
+            avoidance[1] = Traffic.NearFieldAvoidance(1.0)
+            scores[1] = Traffic.LaneScore(0.0)
+            steps[1] = Traffic.Step(age)
+        end
+        Traffic.add_same_direction_response!(world)
+        Traffic.add_opposite_direction_response!(world)
+        Traffic.add_near_field_avoidance!(world)
+        return only(
+            score.value
+                for (_, scores) in Traffic.Query(world, (Traffic.LaneScore,))
+                for score in scores
+        )
+    end
+
+    # The default and an explicit `nothing` are both the historical behavior.
+    @test reactive_score(50) == reactive_score(50; avoidance_disable_age = nothing)
+    @test reactive_score(50) == 2.0
+    @test reactive_score(49; avoidance_disable_age = 50) == 2.0
+    @test reactive_score(50; avoidance_disable_age = 50) == 0.0
+
+    habit_model = Traffic.CapabilityModel(
+        same_direction_share = 1.0,
+        opposite_direction_share = 1.0,
+        avoidance_share = 1.0,
+        habit_share = 1.0,
+        convention_share = 1.0,
+        social_habit_share = 1.0,
+        avoidance_disable_age = 50,
+    )
+    habit_world = Traffic.setup_world(Traffic.ModelArgs(
+        seed = 8,
+        params = params,
+        prediction_strategy = habit_model,
+        steps = 0,
+    ))
+    for (_, values) in Traffic.Query(habit_world, (Traffic.HabitFormation,))
+        values[1] = Traffic.HabitFormation(1.0)
+    end
+    for (_, values) in Traffic.Query(habit_world, (Traffic.Habitus,))
+        values[1] = Traffic.Habitus(1.0)
+    end
+    for (_, values) in Traffic.Query(habit_world, (Traffic.PerceivedConvention,))
+        values[1] = Traffic.PerceivedConvention(1.0, 1.0)
+    end
+    for (_, values) in Traffic.Query(habit_world, (Traffic.SocialHabitFormation,))
+        values[1] = Traffic.SocialHabitFormation(1.0, 0.2, 0.0)
+    end
+    for (_, values) in Traffic.Query(habit_world, (Traffic.SocialHabitus,))
+        values[1] = Traffic.SocialHabitus(1.0)
+    end
+    for (_, scores) in Traffic.Query(habit_world, (Traffic.LaneScore,))
+        scores[1] = Traffic.LaneScore(0.0)
+    end
+    for (_, steps) in Traffic.Query(habit_world, (Traffic.Step,))
+        steps[1] = Traffic.Step(50)
+    end
+    Traffic.add_same_direction_response!(habit_world)
+    Traffic.add_opposite_direction_response!(habit_world)
+    Traffic.add_near_field_avoidance!(habit_world)
+    Traffic.add_habit_response!(habit_world)
+    Traffic.add_convention_response!(habit_world)
+    Traffic.add_social_habit_response!(habit_world)
+    @test only(
+        score.value
+            for (_, scores) in Traffic.Query(habit_world, (Traffic.LaneScore,))
+            for score in scores
+    ) == 1.5
+
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(avoidance_disable_age = 0),
+    )
+    @test_throws ArgumentError Traffic.validate(
+        Traffic.CapabilityModel(avoidance_disable_age = -1),
+    )
+    @test_throws ArgumentError capability_model(
+        ExperimentConfig(), :habit; avoidance_disable_age = 0,
+    )
+end
+
 @testset "Capability-composed speed model" begin
     @test Traffic.ModelParams().ring_y == 300
     @test Traffic.ModelParams().lookahead == 60
@@ -920,6 +1024,31 @@ end
     @test all(0 .<= logger.accepted_dangerous_proposals .<= logger.dangerous_proposals)
     @test all(1.0 .<= logger.mean_proposed_speed .<= 3.0)
     @test all(1.0 .<= logger.mean_realized_speed .<= 3.0)
+end
+
+@testset "Completed movement experiment metric" begin
+    config = ExperimentConfig(
+        seeds = 20260901:20260901,
+        steps = 10,
+        burn_in = 0,
+        population = 20,
+        ring_y = 20,
+        lookahead = 10,
+    )
+    capability = run_capability_condition(config, first(config.seeds), :no_habit)
+    sequential = run_sequential_condition(config, first(config.seeds), :no_habit)
+
+    @test capability.completed_cells_per_car_step ≈
+          capability.mean_speed - capability.max_speed * capability.replacement_rate
+    @test sequential.completed_cells_per_car_step ≈ 1.0 - sequential.replacement_rate
+    @test 0.0 <= capability.completed_cells_per_car_step <= capability.max_speed
+    @test 0.0 <= sequential.completed_cells_per_car_step <= sequential.max_speed
+
+    mktempdir() do directory
+        path = write_results(joinpath(directory, "completed_movement.csv"),
+                             [capability, sequential])
+        @test isequal(read_results(path), [capability, sequential])
+    end
 end
 
 @testset "Non-heritable newborn risk hook" begin

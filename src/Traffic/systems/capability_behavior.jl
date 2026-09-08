@@ -129,11 +129,14 @@ function reset_lane_scores!(world)
 end
 
 function add_same_direction_response!(world)
+  model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₛ
-  for (entities, observations, responses, scores) in Query(
-    world, (LocalObservation, SameDirectionResponse, LaneScore),
+  for (entities, observations, responses, scores, steps) in Query(
+    world, (LocalObservation, SameDirectionResponse, LaneScore, Step),
   )
     @inbounds for index in eachindex(entities)
+      !isnothing(model.avoidance_disable_age) &&
+          steps[index].val >= model.avoidance_disable_age && continue
       value = weight * responses[index].sensitivity *
               (2 * observations[index].same_left - 1)
       scores[index] = LaneScore(scores[index].value + value)
@@ -143,11 +146,14 @@ function add_same_direction_response!(world)
 end
 
 function add_opposite_direction_response!(world)
+  model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₒ
-  for (entities, observations, responses, scores) in Query(
-    world, (LocalObservation, OppositeDirectionResponse, LaneScore),
+  for (entities, observations, responses, scores, steps) in Query(
+    world, (LocalObservation, OppositeDirectionResponse, LaneScore, Step),
   )
     @inbounds for index in eachindex(entities)
+      !isnothing(model.avoidance_disable_age) &&
+          steps[index].val >= model.avoidance_disable_age && continue
       value = -weight * responses[index].sensitivity *
               (2 * observations[index].opposite_left - 1)
       scores[index] = LaneScore(scores[index].value + value)
@@ -157,11 +163,14 @@ function add_opposite_direction_response!(world)
 end
 
 function add_near_field_avoidance!(world)
+  model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₐ
-  for (entities, observations, responses, scores) in Query(
-    world, (LocalObservation, NearFieldAvoidance, LaneScore),
+  for (entities, observations, responses, scores, steps) in Query(
+    world, (LocalObservation, NearFieldAvoidance, LaneScore, Step),
   )
     @inbounds for index in eachindex(entities)
+      !isnothing(model.avoidance_disable_age) &&
+          steps[index].val >= model.avoidance_disable_age && continue
       value = weight * responses[index].sensitivity *
               (observations[index].close_right - observations[index].close_left)
       scores[index] = LaneScore(scores[index].value + value)
