@@ -98,6 +98,9 @@ struct Speed
     end
 end
 
+"""Marker enabling the reactive lane-response scoring systems for a car."""
+struct ReactiveLaneResponse end
+
 struct SameDirectionResponse
     sensitivity::Float64
 end

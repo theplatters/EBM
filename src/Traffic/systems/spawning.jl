@@ -201,6 +201,7 @@ function spawn_capability_car!(world, position, direction, speed, genome, model)
         position,
         PrevPosition(position),
         direction,
+        ReactiveLaneResponse(),
         RiskAversion(genome.risk_aversion),
         Speed(speed),
         SpeedAdjustment(model.max_speed),

@@ -27,6 +27,7 @@ function setup_world(args::ModelArgs{CapabilityModel})
         Speed,
         SpeedAdjustment,
         RiskAversion,
+        ReactiveLaneResponse,
         SameDirectionResponse,
         OppositeDirectionResponse,
         NearFieldAvoidance,

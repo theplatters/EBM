@@ -150,26 +150,6 @@
   + Each arrow is a query, so what a system reads and writes — its information availability — is explicit in the structure.
 ]
 
-== ABM in ECS terms
-#table(
-  columns: (auto, auto, auto, auto),
-  inset: 7pt,
-  align: horizon,
-  [*Concept*], [*Description*], [*ABM Equivalent*], [*Role in Simulation*],
-
-  [*Entity*], [Unique object in the world], [Agent], [Represents an individual actor in the simulation],
-
-  [*Component*],
-  [Data attached to an entity],
-  [Agent attributes / state variables],
-  [Stores properties such as position, preferences, or resources],
-
-  [*System*],
-  [Function operating on sets of components],
-  [Part of the agent step function],
-  [Implements simulation rules and updates state],
-)
-
 == The habit rule in both layouts
 
 #v(2.0cm)
@@ -251,13 +231,6 @@
 = Current traffic model
 
 
-== New additions
-
-- All cars decide from *one committed pre-decision state*.
-- LR determines the final lane; speed is chosen only on that binding lane.
-- A car attempts maximum speed (normally 3), makes one seeded draw, and accepts danger with probability $1 - "risk aversion"$.
-- Rejected danger causes progressively lower-speed tests; speed 1 is the unavoidable-risk fallback when every speed is dangerous.
-
 == What enters LR?
 
 - *Habit:* the driver's own realized-side history, reinforced by the age-dependent Hodgson--Knudsen rule.
@@ -266,37 +239,6 @@
 
 LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "disposition" dot h^n$ (habit), $w_c dot "confidence" dot c^n$ (convention), via a dedicated scoring system; `propose_lanes!` commits the *sign* of the sum.
 
-
-== Timing and habit
-#figure()[
-  #image("../../plots/activation_habit_results.png", height: 85%)
-]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* timing changes compatibility; habit more than offsets the simultaneous loss.]]
-#speaker-note[
-  This experiment uses SequentialModel's activation-order and explicit
-  simultaneous schedulers; it isolates timing semantics rather than switching
-  the CapabilityModel's update rule. The timing sensitivity echoes the
-  classical synchronous-versus-asynchronous results for spatial games
-  @hubermanEvolutionaryGamesComputer1993 @newthAsynchronousSpatialEvolutionary2009a,
-  and the direction agrees: staggered information buys coordination.
-  Their asynchronous prescription targets systems without any shared rhythm,
-  whereas road traffic has one: drivers react to what is visibly happening
-  around them, not to a private schedule. They still decide alone, each
-  against the same visible state; at this timescale a decision responds to
-  the road, not to a neighbor's uncommitted intention. Modeling the period
-  as simultaneous decisions is therefore a behavioral claim, not a clock
-  artifact, and the architecture makes it explicit.
-  The simultaneous/no-habit effect is -0.00312, with 95% bootstrap interval
-  [-0.00351, -0.00272] (magnitude 0.00272--0.00351). Habit raises simultaneous
-  compatibility by 0.00474 [0.00433, 0.00512]. This is an encounter-level
-  result; the aligned one-tick fixture is a mechanism check, not evidence that
-  alignment emerges by itself.
-  Activation order here is fixed by car ID; per-tick shuffling would
-  redistribute the early-mover advantage across drivers without removing
-  the underlying leakage.
-]
 
 == Capabilities under uniform entry risk
 #figure()[
@@ -333,48 +275,7 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 )[*Takeaway:* mean capability shares are higher under mixed evolution, but between-seed variation is substantial.]]
 #speaker-note[
   This dynamics artifact comes from `notebooks/run_mixture_ensemble_dynamics.jl`.
-  Design: 30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in,
-  sampling every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Two
-  scenarios run side by side — a static mixture using `EntryDrawReplacement`, and
-  an evolutionary mixture using `EvolutionaryReplacement`. In the static scenario
-  capabilities are redrawn from entry shares with no evolution; in the evolutionary
-  scenario capabilities and quantitative traits inherit and mutate, but after each
-  replacement a seeded, independent Uniform(0,1) draw overwrites the newborn's
-  temporarily inherited risk before its next decision, so risk is fixed for the
-  car's life and non-heritable. Solid lines are across-seed means and the ribbons
-  are ±1 SD; the dashed line marks the burn-in boundary. Mean final shares match
-  the uniform-risk comparison CSV: static Habit .513, Convention .514,
-  SocialHabit .515, and all three .133, versus evolutionary .577, .563, .600,
-  and .179. The gap is real in sample means, but the evolutionary trajectories
-  show substantial between-seed variation, so the figure supports a difference in
-  ensemble means rather than a universal directional claim for every seed.
-  Throughput is survivor-completed cells per car-step, aggregated over the same
-  25-tick windows as replacement pressure; collided movements contribute zero.
-]
-
-== Avoidance retires at age 50
-#figure()[
-  #image("../../plots/age50_avoidance_mixture_ensemble_dynamics.png", width: 88%)
-]
-#align(center)[#text(
-  size: 13pt,
-)[*Takeaway:* habit, convention, and social habit sustain the convention after the reactive responses switch off, with only small aggregate changes.]]
-#speaker-note[
-  30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in, sampling
-  every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Both scenarios
-  use EntryDrawReplacement, so risk is an independently entry-drawn, non-heritable
-  Uniform(0,1) draw per entrant, and mixed H/C/S entry shares are .5. The only
-  treatment difference is an opt-in threshold that, at Step age >= 50, excludes the
-  SameDirectionResponse, OppositeDirectionResponse, and NearFieldAvoidance score
-  contributions from decisions while preserving their components and genomes — and
-  thus preserving the other experiments. Across strictly post-burn-in samples,
-  the observed run-average ensemble means are convention 0.959066 baseline
-  versus 0.960913 treatment; replacement pressure 0.025498 versus 0.024650;
-  and completed cells per car-step 2.903665 versus 2.907006. Throughput sums
-  survivor-realized distance over each 25-tick window and divides by all
-  car-steps, so collided movements contribute zero. These are small sample-mean
-  shifts, not broad causal certainty: the convention persists once the reactive
-  responses retire, with little aggregate effect on the reported quantities.
+  Design: 30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in, sampling every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Two scenarios run side by side — a static mixture using `EntryDrawReplacement`, and an evolutionary mixture using `EvolutionaryReplacement`. In the static scenario capabilities are redrawn from entry shares with no evolution; in the evolutionary scenario capabilities and quantitative traits inherit and mutate, but after each replacement a seeded, independent Uniform(0,1) draw overwrites the newborn's temporarily inherited risk before its next decision, so risk is fixed for the car's life and non-heritable. Solid lines are across-seed means and the ribbons are ±1 SD; the dashed line marks the burn-in boundary. Mean final shares match the uniform-risk comparison CSV: static Habit .513, Convention .514, SocialHabit .515, and all three .133, versus evolutionary .577, .563, .600, and .179. The gap is real in sample means, but the evolutionary trajectories show substantial between-seed variation, so the figure supports a difference in ensemble means rather than a universal directional claim for every seed. Throughput is survivor-completed cells per car-step, aggregated over the same 25-tick windows as replacement pressure; collided movements contribute zero.
 ]
 
 = Possible benefits and drawbacks of using ECS for ABMs
@@ -407,15 +308,6 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
   entry floor relative to writing one `agent_step!` function.
 ]
 
-== Outlook
-- Scheduler (Helm.jl) for Ark.jl in progress.
-  - Helps make dependencies of systems explicit, leading to automatic parallel scheduling between systems and easier modularity.
-  - Could enable automatic ODD exporting @grimmODDProtocolDescribing2020.
-- Rewrote BeforeIT @glielmoBeforeITjlHighPerformanceAgentBased2025 @polednaEconomicForecastingAgentbased2023 from a Structure of Arrays approach to ECS
-  - Modular Macro-ABM?
-- More experiments with ABMs that truly benefit from compositional heterogeneity.
-
-
 == Conclusion
 - *The choice of framework is not neutral:* it affects modeling decisions
   about the information agents hold, update ordering, sequential versus
@@ -430,6 +322,450 @@ LR is an *additive score*: each mechanism adds its own weighted term, $w_h dot "
 #show: appendix
 
 = Appendix
+
+== ABM in ECS terms
+#table(
+  columns: (auto, auto, auto, auto),
+  inset: 7pt,
+  align: horizon,
+  [*Concept*], [*Description*], [*ABM Equivalent*], [*Role in Simulation*],
+
+  [*Entity*], [Unique object in the world], [Agent], [Represents an individual actor in the simulation],
+
+  [*Component*],
+  [Data attached to an entity],
+  [Agent attributes / state variables],
+  [Stores properties such as position, preferences, or resources],
+
+  [*System*],
+  [Function operating on sets of components],
+  [Part of the agent step function],
+  [Implements simulation rules and updates state],
+)
+
+== New additions
+
+- All cars decide from *one committed pre-decision state*.
+- LR determines the final lane; speed is chosen only on that binding lane.
+- A car attempts maximum speed (normally 3), makes one seeded draw, and accepts danger with probability $1 - "risk aversion"$.
+- Rejected danger causes progressively lower-speed tests; speed 1 is the unavoidable-risk fallback when every speed is dangerous.
+
+== Timing and habit
+#figure()[
+  #image("../../plots/activation_habit_results.png", height: 85%)
+]
+#align(center)[#text(
+  size: 13pt,
+)[*Takeaway:* timing changes compatibility; habit more than offsets the simultaneous loss.]]
+#speaker-note[
+  Panel definitions: A coordination encounter is an opposing-direction pair
+  whose 2 x 2 left/right action matrix contains both safe and colliding outcomes,
+  with no action that is safe regardless of the other driver's choice.
+
+  *Compatible joint choices / encounters* is the share of those encounter pairs
+  whose realized joint lane choices do not collide.
+
+  *Aligned dispositions before encounters* considers only encounters in which
+  both drivers have nonzero habitus before moving and before the current tick's
+  habit update. It is the share for which both habitus values have the same sign,
+  meaning both drivers have accumulated a preference for the same relative side.
+
+  *Pre-coordinated encounters* uses the same denominator and is stricter: both
+  prior dispositions must be aligned and both drivers must choose the relative
+  side indicated by their own disposition.
+
+  *Actions matching accumulated disposition* is calculated at the driver-action
+  level rather than the pair level. Among unique drivers participating in at
+  least one encounter during a tick and having nonzero prior habitus, it is the
+  share whose intended relative lane matches the sign of that habitus. A driver
+  involved in multiple encounter pairs is counted once in that tick.
+
+  Each run pools the corresponding counts over all post-burn-in ticks before
+  taking these ratios. In the no-habit treatment, habitus is still accumulated
+  for diagnosis, but its LR weight is zero, so it does not affect lane choice.
+
+  This experiment uses SequentialModel's activation-order and explicit
+  simultaneous schedulers; it isolates timing semantics rather than switching
+  the CapabilityModel's update rule. The timing sensitivity echoes the
+  classical synchronous-versus-asynchronous results for spatial games
+  @hubermanEvolutionaryGamesComputer1993 @newthAsynchronousSpatialEvolutionary2009a,
+  and the direction agrees: staggered information buys coordination.
+  Their asynchronous prescription targets systems without any shared rhythm,
+  whereas road traffic has one: drivers react to what is visibly happening
+  around them, not to a private schedule. They still decide alone, each
+  against the same visible state; at this timescale a decision responds to
+  the road, not to a neighbor's uncommitted intention. Modeling the period
+  as simultaneous decisions is therefore a behavioral claim, not a clock
+  artifact, and the architecture makes it explicit.
+  The simultaneous/no-habit effect is -0.00312, with 95% bootstrap interval
+  [-0.00351, -0.00272] (magnitude 0.00272--0.00351). Habit raises simultaneous
+  compatibility by 0.00474 [0.00433, 0.00512]. This is an encounter-level
+  result; the aligned one-tick fixture is a mechanism check, not evidence that
+  alignment emerges by itself.
+  Activation order here is fixed by car ID; per-tick shuffling would
+  redistribute the early-mover advantage across drivers without removing
+  the underlying leakage.
+]
+
+== Avoidance retires at age 50
+#figure()[
+  #image("../../plots/age50_avoidance_mixture_ensemble_dynamics.png", width: 88%)
+]
+#align(center)[#text(
+  size: 13pt,
+)[*Takeaway:* habit, convention, and social habit sustain the convention after the reactive responses switch off, with only small aggregate changes.]]
+#speaker-note[
+  30 paired seeds 20260901:20260930, 5,000 ticks, 1,000-tick burn-in, sampling
+  every 25 ticks, population 120 on a 2 x 300 ring, lookahead 20. Both scenarios
+  use EntryDrawReplacement, so risk is an independently entry-drawn, non-heritable
+  Uniform(0,1) draw per entrant, and mixed H/C/S entry shares are .5. The only
+  treatment difference is an opt-in threshold that, at Step age >= 50, excludes the
+  SameDirectionResponse, OppositeDirectionResponse, and NearFieldAvoidance score
+  contributions from decisions while preserving their components and genomes — and
+  thus preserving the other experiments. Across strictly post-burn-in samples,
+  the observed run-average ensemble means are convention 0.959066 baseline
+  versus 0.960913 treatment; replacement pressure 0.025498 versus 0.024650;
+  and completed cells per car-step 2.903665 versus 2.907006. Throughput sums
+  survivor-realized distance over each 25-tick window and divides by all
+  car-steps, so collided movements contribute zero. These are small sample-mean
+  shifts, not broad causal certainty: the convention persists once the reactive
+  responses retire, with little aggregate effect on the reported quantities.
+]
+
+== Outlook
+- Scheduler (Helm.jl) for Ark.jl in progress.
+  - Helps make dependencies of systems explicit, leading to automatic parallel scheduling between systems and easier modularity.
+  - Could enable automatic ODD exporting @grimmODDProtocolDescribing2020.
+- Rewrote BeforeIT @glielmoBeforeITjlHighPerformanceAgentBased2025 @polednaEconomicForecastingAgentbased2023 from a Structure of Arrays approach to ECS
+  - Modular Macro-ABM?
+- More experiments with ABMs that truly benefit from compositional heterogeneity.
+
+== Code: LR emerges from system composition
+
+#grid(
+  columns: (1.08fr, 0.92fr),
+  column-gutter: 1.2em,
+  [
+    #text(size: 7.5pt)[
+      ```julia
+      struct ReactiveLaneResponse end
+
+      function add_same_direction_response!(world)
+          weight = Ark.get_resource(world, Weights).wₛ
+          for (_, observations, responses, scores, steps) in Query(
+              world, (LocalObservation, SameDirectionResponse,
+                      LaneScore, Step);
+              with = (ReactiveLaneResponse,),
+          )
+              for i in eachindex(scores)
+                  value = weight * responses[i].sensitivity *
+                          (2 * observations[i].same_left - 1)
+                  scores[i] = LaneScore(scores[i].value + value)
+              end
+          end
+      end
+
+      function add_habit_response!(world)
+          model = Ark.get_resource(world, CapabilityModel)
+          for (_, habits, habitus, scores) in Query(
+              world, (HabitFormation, Habitus, LaneScore),
+          )
+              for i in eachindex(scores)
+                  value = model.habit_weight *
+                          habits[i].disposition * habitus[i].val
+                  scores[i] = LaneScore(scores[i].value + value)
+              end
+          end
+      end
+
+      function add_convention_response!(world)
+          model = Ark.get_resource(world, CapabilityModel)
+          for (_, perceptions, scores) in Query(
+              world, (PerceivedConvention, LaneScore),
+          )
+              for i in eachindex(scores)
+                  p = perceptions[i]
+                  value = model.convention_weight * p.confidence * p.value
+                  scores[i] = LaneScore(scores[i].value + value)
+              end
+          end
+      end
+      ```
+    ]
+  ],
+  [
+    #text(size: 7.5pt)[
+      ```julia
+      function calculate_capability_proposals!(world)
+          observe_capability_traffic!(world)
+          learn_conventions!(world)
+          learn_social_habits!(world)
+          reset_lane_scores!(world)
+          add_same_direction_response!(world)
+          add_opposite_direction_response!(world)
+          add_near_field_avoidance!(world)
+          add_habit_response!(world)
+          add_convention_response!(world)
+          add_social_habit_response!(world)
+          propose_lanes!(world)
+      end
+
+      function propose_lanes!(world)
+          for (_, positions, directions, scores,
+               proposals, decisions) in Query(
+              world, (Position, Direction, LaneScore,
+                      LaneProposal, LR),
+          )
+              for i in eachindex(scores)
+                  score = scores[i].value
+                  # The sign selects the relative lane.
+                  proposals[i] = LaneProposal(...)
+                  decisions[i] = LR(score)
+              end
+          end
+      end
+
+      # One structural switch disables all three
+      # reactive scoring systems for this car:
+      Ark.remove_components!(
+          world, car, (ReactiveLaneResponse,),
+      )
+      ```
+    ]
+    #v(0.3em)
+    #text(size: 9pt)[Each system contributes one term to the same `LaneScore`; the
+      final system commits its sum as `LR`.]
+  ],
+)
+
+#speaker-note[
+  These are shortened directly from `systems/capability_behavior.jl`. The first
+  query also contains the existing age-based shutdown guard in the full source.
+  The empty `ReactiveLaneResponse` component is a marker: its value carries no
+  data, but its presence controls whether the three reactive systems match a car.
+  Habit, convention, and social habit do not require it and continue to contribute.
+]
+
+== Code: spawning a capability-composed car
+
+#grid(
+  columns: (0.9fr, 1.1fr),
+  column-gutter: 1.2em,
+  [
+    #text(size: 8pt)[
+      ```julia
+      function capability_components(genome)
+          components = ()
+
+          !isnothing(genome.same_direction) &&
+              (components = (
+                  components...,
+                  SameDirectionResponse(
+                      genome.same_direction,
+                  ),
+              ))
+
+          if !isnothing(genome.habit)
+              components = (
+                  components...,
+                  HabitFormation(genome.habit),
+                  Habitus(0.0),
+              )
+          end
+
+          # Other optional capabilities follow
+          # the same composition pattern.
+          return components
+      end
+      ```
+    ]
+  ],
+  [
+    #text(size: 8pt)[
+      ```julia
+      function spawn_capability_car!(
+          world, position, direction, speed, genome, model,
+      )
+          base = (
+              position,
+              PrevPosition(position),
+              direction,
+              ReactiveLaneResponse(),
+              RiskAversion(genome.risk_aversion),
+              Speed(speed),
+              SpeedAdjustment(model.max_speed),
+              LocalObservation(),
+              LaneScore(0.0),
+              LaneProposal(position.x),
+              SpeedProposal(speed),
+              MovementPath(position),
+              LR(0.0),
+              Step(1),
+          )
+          return Ark.new_entity!(
+              world,
+              (base..., capability_components(genome)...),
+          )
+      end
+      ```
+    ]
+  ],
+)
+
+#align(center)[#text(size: 10pt)[A car is an entity assembled from mandatory state
+  plus only the behavioral capabilities present in its genome.]]
+
+#speaker-note[
+  Shortened from `systems/spawning.jl`: convention and social-habit branches in
+  `capability_components` are omitted because they repeat the same pattern.
+  Acquired state is initialized here rather than inherited: for example, every
+  newborn with HabitFormation receives a fresh Habitus(0.0).
+]
+
+== Code: selecting an evolutionary parent
+
+#grid(
+  columns: (1fr, 1fr),
+  column-gutter: 1.2em,
+  [
+    #text(size: 8.5pt)[
+      ```julia
+      function spawn_new_entities!(world, replacements)
+          model = Ark.get_resource(world, CapabilityModel)
+
+          survivor_data = []
+          for (entities, positions) in Query(world, (Position,))
+              for i in eachindex(entities)
+                  push!(survivor_data, (
+                      entities[i],
+                      positions[i],
+                      capability_genome(world, entities[i]),
+                  ))
+              end
+          end
+
+          sort!(survivor_data;
+                by = survivor -> entity_order(survivor[1]))
+          parent_genomes = [s[3] for s in survivor_data]
+
+          # For every replacement:
+          genome = replacement_genome(
+              model.replacement_policy,
+              parent_genomes,
+              model, draws, rng,
+          )
+          spawn_capability_car!(
+              world, position, direction,
+              model.max_speed, genome, model,
+          )
+      end
+      ```
+    ]
+  ],
+  [
+    #text(size: 8.5pt)[
+      ```julia
+      function replacement_genome(
+          ::EntryDrawReplacement,
+          parent_genomes, model, draws, rng,
+      )
+          return entry_capability_genome(
+              model, draws, rng, rand(rng),
+          )
+      end
+
+      function replacement_genome(
+          policy::EvolutionaryReplacement,
+          parent_genomes, model, draws, rng,
+      )
+          isempty(parent_genomes) &&
+              return entry_capability_genome(model, draws, rng)
+
+          parent = rand(rng, parent_genomes)
+          return inherit_capability_genome(
+              parent, model, draws, policy, rng,
+          )
+      end
+      ```
+    ]
+    #v(0.5em)
+    #text(size: 10pt)[Collided cars are already gone, so the query contains only
+      survivors. Evolution samples one of their genomes uniformly.]
+  ],
+)
+
+#speaker-note[
+  Shortened from `systems/spawning.jl`. The production loop creates one genome
+  and one new car per collision while preserving the collided driver's travel
+  direction. Sorting survivors by entity ID makes fixed-seed runs reproducible.
+]
+
+== Code: inheritance and mutation
+
+#grid(
+  columns: (0.95fr, 1.05fr),
+  column-gutter: 1.2em,
+  [
+    #text(size: 8.5pt)[
+      ```julia
+      function mutate_optional_trait(
+          parent, entry_value, enabled, policy, rng,
+      )
+          if rand(rng) < policy.capability_mutation_rate
+              return isnothing(parent) ?
+                  (enabled ? entry_value : nothing) :
+                  nothing
+          end
+
+          isnothing(parent) && return nothing
+          return max(
+              0.0,
+              parent + policy.trait_mutation_scale * randn(rng),
+          )
+      end
+      ```
+    ]
+    #v(0.5em)
+    #text(size: 10pt)[A mutation event flips capability presence. Otherwise its
+      quantitative trait is inherited with Gaussian mutation.]
+  ],
+  [
+    #text(size: 8.5pt)[
+      ```julia
+      function inherit_capability_genome(
+          parent, model, draws,
+          policy::EvolutionaryReplacement, rng,
+      )
+          return CapabilityGenome(
+              clamp(
+                  parent.risk_aversion +
+                  policy.trait_mutation_scale * randn(rng),
+                  0.0, 1.0,
+              ),
+              mutate_optional_trait(
+                  parent.same_direction, draws[1],
+                  model.same_direction_share > 0.0,
+                  policy, rng,
+              ),
+              # opposite direction, avoidance, habit,
+              # convention, and social habit follow.
+          )
+      end
+      ```
+    ]
+    #v(0.5em)
+    #text(size: 10pt)[The genome contains stable capabilities and traits only;
+      acquired dispositions are reset when the child is spawned.]
+  ],
+)
+
+#speaker-note[
+  Shortened from `mutate_optional_trait` and `inherit_capability_genome` in
+  `systems/spawning.jl`. Risk is always present and clamped to [0, 1]. Each
+  optional capability independently mutates between present and absent; present
+  traits mutate quantitatively. Convention and social habit use specialized
+  versions because each carries several bounded traits.
+]
 
 
 

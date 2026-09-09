@@ -132,7 +132,9 @@ function add_same_direction_response!(world)
   model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₛ
   for (entities, observations, responses, scores, steps) in Query(
-    world, (LocalObservation, SameDirectionResponse, LaneScore, Step),
+    world,
+    (LocalObservation, SameDirectionResponse, LaneScore, Step);
+    with = (ReactiveLaneResponse,),
   )
     @inbounds for index in eachindex(entities)
       !isnothing(model.avoidance_disable_age) &&
@@ -149,7 +151,9 @@ function add_opposite_direction_response!(world)
   model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₒ
   for (entities, observations, responses, scores, steps) in Query(
-    world, (LocalObservation, OppositeDirectionResponse, LaneScore, Step),
+    world,
+    (LocalObservation, OppositeDirectionResponse, LaneScore, Step);
+    with = (ReactiveLaneResponse,),
   )
     @inbounds for index in eachindex(entities)
       !isnothing(model.avoidance_disable_age) &&
@@ -166,7 +170,9 @@ function add_near_field_avoidance!(world)
   model = Ark.get_resource(world, CapabilityModel)
   weight = Ark.get_resource(world, Weights).wₐ
   for (entities, observations, responses, scores, steps) in Query(
-    world, (LocalObservation, NearFieldAvoidance, LaneScore, Step),
+    world,
+    (LocalObservation, NearFieldAvoidance, LaneScore, Step);
+    with = (ReactiveLaneResponse,),
   )
     @inbounds for index in eachindex(entities)
       !isnothing(model.avoidance_disable_age) &&

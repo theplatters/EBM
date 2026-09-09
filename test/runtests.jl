@@ -246,7 +246,7 @@ end
 @testset "Opt-in reactive capability shutdown" begin
     params = Traffic.ModelParams(init_agents = 1, ring_y = 20, lookahead = 5)
 
-    function reactive_score(age; avoidance_disable_age = nothing)
+    function reactive_score(age; avoidance_disable_age = nothing, reactive = true)
         model = Traffic.CapabilityModel(
             same_direction_share = 1.0,
             opposite_direction_share = 1.0,
@@ -259,12 +259,14 @@ end
             prediction_strategy = model,
             steps = 0,
         ))
-        for (_, observations, same, opposite, avoidance, scores, steps) in Traffic.Query(
+        entity = nothing
+        for (entities, observations, same, opposite, avoidance, scores, steps) in Traffic.Query(
                 world,
                 (Traffic.LocalObservation, Traffic.SameDirectionResponse,
                  Traffic.OppositeDirectionResponse, Traffic.NearFieldAvoidance,
                  Traffic.LaneScore, Traffic.Step),
             )
+            entity = only(entities)
             observations[1] = Traffic.LocalObservation(1.0, 0.0, 0.0, 2.0, 0.0, 0)
             same[1] = Traffic.SameDirectionResponse(1.0)
             opposite[1] = Traffic.OppositeDirectionResponse(1.0)
@@ -272,6 +274,9 @@ end
             scores[1] = Traffic.LaneScore(0.0)
             steps[1] = Traffic.Step(age)
         end
+        reactive || Traffic.Ark.remove_components!(
+            world, entity, (Traffic.ReactiveLaneResponse,),
+        )
         Traffic.add_same_direction_response!(world)
         Traffic.add_opposite_direction_response!(world)
         Traffic.add_near_field_avoidance!(world)
@@ -285,6 +290,7 @@ end
     # The default and an explicit `nothing` are both the historical behavior.
     @test reactive_score(50) == reactive_score(50; avoidance_disable_age = nothing)
     @test reactive_score(50) == 2.0
+    @test reactive_score(50; reactive = false) == 0.0
     @test reactive_score(49; avoidance_disable_age = 50) == 2.0
     @test reactive_score(50; avoidance_disable_age = 50) == 0.0
 
@@ -318,12 +324,17 @@ end
     for (_, values) in Traffic.Query(habit_world, (Traffic.SocialHabitus,))
         values[1] = Traffic.SocialHabitus(1.0)
     end
-    for (_, scores) in Traffic.Query(habit_world, (Traffic.LaneScore,))
+    habit_entity = nothing
+    for (entities, scores) in Traffic.Query(habit_world, (Traffic.LaneScore,))
+        habit_entity = only(entities)
         scores[1] = Traffic.LaneScore(0.0)
     end
     for (_, steps) in Traffic.Query(habit_world, (Traffic.Step,))
         steps[1] = Traffic.Step(50)
     end
+    Traffic.Ark.remove_components!(
+        habit_world, habit_entity, (Traffic.ReactiveLaneResponse,),
+    )
     Traffic.add_same_direction_response!(habit_world)
     Traffic.add_opposite_direction_response!(habit_world)
     Traffic.add_near_field_avoidance!(habit_world)
